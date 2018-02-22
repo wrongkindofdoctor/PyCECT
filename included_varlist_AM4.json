@@ -1,0 +1,8 @@
+{
+"IncludedVar": ["t_ref", "q_ref", "u_ref", "v_ref", "wind_ref", "rh_ref", "evap", "lwflx",
+"shflx", "tau_x", "tau_y", "b_star", "alb_sfc", "lwdn_sfc", "lwup_sfc", "swdn_sfc",
+"swup_sfc", "olr", "swdn_toa", "swup_toa", "netrad_toa", "heat2d_rad", "heat2d_sw",
+"qo3_col", "high_cld_amt", "low_cld_amt", "mid_cld_amt", "tot_cld_amt", "droplets",
+"k_t_entr", "zsml", "k_t_troen", "k_m_troen", " k_m_entr", "z_pbl", "z_Ri_025",
+"convect", "convpbl_fq", "radpbl_fq", "entr_pbl", "entr_rad_fq"]
+}
