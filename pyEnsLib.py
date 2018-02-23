@@ -16,6 +16,7 @@ import itertools
 from itertools import islice
 from EET import exhaustive_test
 from scipy import linalg as sla
+from math import pi,cos,sqrt
 
 
 #
@@ -45,7 +46,11 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
        maxrange = opts_dict['maxrange']
        nlev=input_dims['z_t']
     else:
-       nlev=input_dims["lev"]
+       if 'lev' in input_dims:
+          nlev=input_dims["lev"]
+       elif 'pfull' in input_dims:
+          nlev=input_dims['pfull']
+
     # Create array variables based on is_SE
     if (is_SE == True):
       ncol=input_dims["ncol"]
@@ -64,7 +69,10 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
       elif 'lon' in input_dims:
          nlon = input_dims["lon"]
          nlat = input_dims["lat"]
-       
+      elif 'grid_xt' in input_dims:
+         nlon = input_dims["grid_xt"]
+         nlat = input_dims["grid_yt"]
+
       npts2d=nlat*nlon
       npts3d=nlev*nlat*nlon
       output3d = np.zeros((len(o_files),nlev,nlat,nlon),dtype=np.float32)
@@ -498,7 +506,11 @@ def get_nlev(o_files,popens):
     #get dimensions and compute area_wgts
     input_dims = o_files[0].dimensions
     if not popens:
-       nlev = get_lev(input_dims,'lev')
+       if 'lev' in input_dims:
+          nlev = get_lev(input_dims,'lev')
+       elif 'pfull' in input_dims:
+          nlev = get_lev(input_dims,'pfull')
+       
     else:
        nlev = get_lev(input_dims,'z_t')
     return input_dims,nlev
@@ -519,9 +531,18 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens):
         area_wgt[:] /= total
     else:
         if not popens:
-           nlon = get_lev(input_dims,'lon') 
-           nlat = get_lev(input_dims,'lat') 
-           gw = o_files[0].variables["gw"]
+           if 'lon' and 'lat' in input_dims:
+              nlon = get_lev(input_dims,'lon') 
+              nlat = get_lev(input_dims,'lat') 
+              gw = o_files[0].variables["gw"]
+           elif 'grid_xt'  and 'grid_yt' in input_dims:
+              nlon = get_lev(input_dims,'grid_xt') 
+              nlat = get_lev(input_dims,'grid_yt')       
+              data = o_files[0].variables["grid_yt"]# T-cell latitude
+              lats = np.zeros(len(data),dtype=np.float32)
+              lats = data
+              gw = np.zeros(len(data),dtype=np.float32)
+              gw = sqrt(cos(lats*pi/180))
         else:
            if 'nlon' in input_dims:
               nlon = get_lev(input_dims,'nlon') 
@@ -803,24 +824,20 @@ def get_ncol_nlev(frun):
   ilat = -1
   ilon = -1
   for k,v in input_dims.iteritems():
-    if k == 'lev':
-      nlev = v
-    if k == 'ncol':
-      ncol = v
-    if (k == 'lat') or (k=='nlat'):
-      nlat = v
-      
-    if (k == 'lon') or (k=='nlon'):
-      nlon = v
+      if k == 'lev' or k == 'pfull':
+         nlev = v
+      if k == 'ncol':
+         ncol = v
+      if k == 'lat' or k == 'nlat' or k == 'grid_yt':
+         nlat = v
+      if k == 'lon' or k == 'nlon' or k == 'grid_xt':
+         nlon = v
     
   if ncol == -1 :
     one_spatial_dim = False
   else:
     one_spatial_dim = True
-  #if nlev == -1 or ncol == -1:
-  #  print "Error: cannot find ncol or nlev dimension in "+run_file
-  #  sys.exit(2) 
-
+ 
   if one_spatial_dim:
     npts3d=float(nlev*ncol)
     npts2d=float(ncol)
