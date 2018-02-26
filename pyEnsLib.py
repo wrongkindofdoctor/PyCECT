@@ -405,9 +405,9 @@ def calc_Z(val,avg,stddev,count,flag):
           count =count + stddev[(stddev <= tol)].size
           return_val[np.where(stddev <= tol)]=0.
           return_val[np.where(stddev > tol)]= (val[np.where(stddev> tol)]-avg[np.where(stddev> tol)])/stddev[np.where(stddev>tol)]
-      else:
-         return_val=(val-avg)/stddev
-  return count,return_val
+       else:
+          return_val=(val-avg)/stddev
+    return count,return_val
 
 #
 # Read a json file for the excluded list of variables
@@ -532,8 +532,8 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens):
               data = o_files[0].variables["grid_yt"]# T-cell latitude
               lats = np.zeros(nlat)
               lats[:] = data[:]
-              print lats.shape 
               gw = np.sqrt(np.cos(lats*np.pi/180))
+              print gw[1:20]
         else:
            if 'nlon' in input_dims:
               nlon = get_lev(input_dims,'nlon') 
