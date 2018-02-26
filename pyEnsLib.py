@@ -71,16 +71,7 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
          nlat = input_dims["lat"]
       elif 'grid_xt' in input_dims:
          nlon = input_dims["grid_xt"]
-         nlat = input_dims["grid_yt"]
-
-      npts2d=nlat*nlon
-      npts3d=nlev*nlat*nlon
-      output3d = np.zeros((len(o_files),nlev,nlat,nlon),dtype=np.float32)
-      output2d = np.zeros((len(o_files),nlat,nlon),dtype=np.float32)
-      ens_avg3d=np.zeros((len(var_name3d),nlev,nlat,nlon),dtype=np.float32)
-      ens_stddev3d=np.zeros((len(var_name3d),nlev,nlat,nlon),dtype=np.float32)
-      ens_avg2d=np.zeros((len(var_name2d),nlat,nlon),dtype=np.float32)
-      ens_stddev2d=np.zeros((len(var_name2d),nlat,nlon),dtype=np.float32)
+         nlat = input_dims["grid_yt"]    
     if popens:
       Zscore3d = np.zeros((len(var_name3d),len(o_files),(nbin)),dtype=np.float32) 
       Zscore2d = np.zeros((len(var_name2d),len(o_files),(nbin)),dtype=np.float32) 
@@ -383,39 +374,39 @@ def pre_PCA(gm_32,all_var_names,whole_list,me):
 # for one principal component. 
 #
 def princomp(standardized_global_mean):
-  # find covariance matrix (will be pxp)
-  co_mat= np.cov(standardized_global_mean)    
-  # Calculate evals and evecs of covariance matrix (evecs are also pxp)
-  [evals, evecs] = np.linalg.eig(co_mat)
-  # Above may not be sorted - sort largest first
-  new_index = np.argsort(evals)[::-1]
-  evecs = evecs[:,new_index]
-  evals = evals[new_index]
+    # find covariance matrix (will be pxp)
+    co_mat= np.cov(standardized_global_mean)    
+    # Calculate evals and evecs of covariance matrix (evecs are also pxp)
+    [evals, evecs] = np.linalg.eig(co_mat)
+    # Above may not be sorted - sort largest first
+    new_index = np.argsort(evals)[::-1]
+    evecs = evecs[:,new_index]
+    evals = evals[new_index]
 
-  return evecs
+    return evecs
 
 #          
 # Calculate (val-avg)/stddev and exclude zero value
 #          
 def calc_Z(val,avg,stddev,count,flag):
-  return_val=np.empty(val.shape,dtype=np.float32,order='C')
-  tol =1e-12   
-  if stddev[(stddev > tol)].size ==0:
-    if flag: 
-      print "WARNING: ALL standard dev = 0"
-      flag = False
-    count =count + stddev[(stddev <= tol)].size
-    return_val = np.zeros(val.shape,dtype=np.float32,order='C')
-  else:        
-    if stddev[(stddev <= tol)].size > 0:
-      if flag:
-        print "WARNING: some standard dev = 0"
-        flag =False
-      count =count + stddev[(stddev <= tol)].size
-      return_val[np.where(stddev <= tol)]=0.
-      return_val[np.where(stddev > tol)]= (val[np.where(stddev> tol)]-avg[np.where(stddev> tol)])/stddev[np.where(stddev>tol)]
-    else:
-      return_val=(val-avg)/stddev
+    return_val=np.empty(val.shape,dtype=np.float32,order='C')
+    tol =1e-12   
+    if stddev[(stddev > tol)].size ==0:
+       if flag: 
+          print "WARNING: ALL standard dev = 0"
+          flag = False
+       count =count + stddev[(stddev <= tol)].size
+       return_val = np.zeros(val.shape,dtype=np.float32,order='C')
+    else:        
+       if stddev[(stddev <= tol)].size > 0:
+          if flag:
+             print "WARNING: some standard dev = 0"
+             flag =False
+          count =count + stddev[(stddev <= tol)].size
+          return_val[np.where(stddev <= tol)]=0.
+          return_val[np.where(stddev > tol)]= (val[np.where(stddev> tol)]-avg[np.where(stddev> tol)])/stddev[np.where(stddev>tol)]
+      else:
+         return_val=(val-avg)/stddev
   return count,return_val
 
 #
@@ -424,30 +415,30 @@ def calc_Z(val,avg,stddev,count,flag):
 def read_jsonlist(metajson,method_name):
     
     if not os.path.exists(metajson):
-        print "\n"
-        print "*************************************************************************************"
-        print "Warning: Specified json file does not exist: ",metajson
-        print "*************************************************************************************"
-        print "\n"
-        varList = []
-        exclude = True
-        return varList,exclude
+       print "\n"
+       print "*************************************************************************************"
+       print "Warning: Specified json file does not exist: ",metajson
+       print "*************************************************************************************"
+       print "\n"
+       varList = []
+       exclude = True
+       return varList,exclude
     else:
-        fd=open(metajson)
-        metainfo = json.load(fd)
-        if method_name == 'ES':
-            exclude=False
-            #varList = metainfo['ExcludedVar']
-            if 'ExcludedVar' in metainfo:
-                exclude=True
-                varList = metainfo['ExcludedVar']
-            elif 'IncludedVar' in metainfo:
-                varList = metainfo['IncludedVar']
-            return varList,exclude
-        elif method_name == 'ESP':
-            var2d = metainfo['Var2d']
-            var3d = metainfo['Var3d']
-            return var2d, var3d
+       fd=open(metajson)
+       metainfo = json.load(fd)
+       if method_name == 'ES':
+          exclude=False
+          #varList = metainfo['ExcludedVar']
+          if 'ExcludedVar' in metainfo:
+              exclude=True
+              varList = metainfo['ExcludedVar']
+          elif 'IncludedVar' in metainfo:
+              varList = metainfo['IncludedVar']
+          return varList,exclude
+       elif method_name == 'ESP':
+          var2d = metainfo['Var2d']
+          var3d = metainfo['Var3d']
+          return var2d, var3d
 
 
 # 
@@ -459,9 +450,9 @@ def calc_nrmse(orig_array,comp_array):
   sumsqr=np.sum(np.square(orig_array.astype(np.float64)-comp_array.astype(np.float64)))
   rng=np.max(orig_array)-np.min(orig_array)
   if abs(rng) < 1e-18:
-    rmse=0.0
+     rmse=0.0
   else:
-    rmse=np.sqrt(sumsqr/orig_size)/rng
+     rmse=np.sqrt(sumsqr/orig_size)/rng
 
   return rmse
 
@@ -472,9 +463,9 @@ def area_avg(data_orig, weight, is_SE):
 
     #TO DO: take into account missing values
     if data_orig.dtype == np.float32:
-        data=data_orig.astype(np.float64)
+       data=data_orig.astype(np.float64)
     else:
-        data=data_orig
+       data=data_orig
     if (is_SE == True):
         a = np.average(data, weights=weight)
     else: #FV
@@ -539,10 +530,10 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens):
               nlon = get_lev(input_dims,'grid_xt') 
               nlat = get_lev(input_dims,'grid_yt')       
               data = o_files[0].variables["grid_yt"]# T-cell latitude
-              lats = np.zeros(len(data),dtype=np.float32)
-              lats = data
-              gw = np.zeros(len(data),dtype=np.float32)
-              gw = sqrt(cos(lats*pi/180))
+              lats = np.zeros(nlat)
+              lats[:] = data[:]
+              print lats.shape 
+              gw = np.sqrt(np.cos(lats*np.pi/180))
         else:
            if 'nlon' in input_dims:
               nlon = get_lev(input_dims,'nlon') 
