@@ -8,13 +8,9 @@ import re
 from asaptools.partition import EqualStride, Duplicate,EqualLength
 import asaptools.simplecomm as simplecomm 
 import pyEnsLib
-
 #This routine creates a summary file from an ensemble of CAM
 #output files
-
 def main(argv):
-
-
     # Get command line stuff and store in a dictionary
     s = 'tag= compset= esize= tslice= res= sumfile= indir= sumfiledir= mach= verbose jsonfile= mpi_enable maxnorm gmonly popens cumul regx= startMon= endMon= fIndex='
     optkeys = s.split()
@@ -57,7 +53,6 @@ def main(argv):
     st = opts_dict['esize']
     esize = int(st)
 
-
     if not (opts_dict['tag'] and opts_dict['compset'] and opts_dict['mach'] or opts_dict['res']):
        print 'Please specify --tag, --compset, --mach and --res options'
        sys.exit()
@@ -83,26 +78,26 @@ def main(argv):
 
     exclude=False
     if me.get_rank() == 0:
-        if opts_dict['jsonfile']:
-            inc_varlist=[]
-            # Read in the excluded or included var list
-            ex_varlist,exclude=pyEnsLib.read_jsonlist(opts_dict['jsonfile'],'ES')
-            if exclude == False:
-               inc_varlist=ex_varlist
-               ex_varlist=[]
-            # Read in the included var list
-            #inc_varlist=pyEnsLib.read_jsonlist(opts_dict['jsonfile'],'ES')
+       if opts_dict['jsonfile']:
+          inc_varlist=[]
+          # Read in the excluded or included var list
+          ex_varlist,exclude=pyEnsLib.read_jsonlist(opts_dict['jsonfile'],'ES')
+          if exclude == False:
+             inc_varlist=ex_varlist
+             ex_varlist=[]
+             # Read in the included var list
+             #inc_varlist=pyEnsLib.read_jsonlist(opts_dict['jsonfile'],'ES')
 
     # Broadcast the excluded var list to each processor
     #if opts_dict['mpi_enable']:
     #   ex_varlist=me.partition(ex_varlist,func=Duplicate(),involved=True)
     # Broadcast the excluded var list to each processor
     if opts_dict['mpi_enable']:
-        exclude=me.partition(exclude,func=Duplicate(),involved=True)
-        if exclude:
-           ex_varlist=me.partition(ex_varlist,func=Duplicate(),involved=True)
-        else:
-           inc_varlist=me.partition(inc_varlist,func=Duplicate(),involved=True)
+       exclude=me.partition(exclude,func=Duplicate(),involved=True)
+       if exclude:
+          ex_varlist=me.partition(ex_varlist,func=Duplicate(),involved=True)
+       else:
+          inc_varlist=me.partition(inc_varlist,func=Duplicate(),involved=True)
         
     in_files=[]
     if(os.path.exists(input_dir)):
@@ -153,7 +148,12 @@ def main(argv):
 
     # Store dimensions of the input fields
     if me.get_rank()==0 and (verbose == True):
-        print "Getting spatial dimensions"
+       print "Getting spatial dimensions"
+    # Look at first file and get dims
+    input_dims = o_files[0].dimensions
+    
+    ndims = len(input_dims)
+
     nlev = -1
     nilev = -1
     ncol = -1
@@ -161,25 +161,24 @@ def main(argv):
     nlon = -1
     lonkey=''
     latkey=''
-    # Look at first file and get dims
-    input_dims = o_files[0].dimensions
-    ndims = len(input_dims)
-
+    levkey=''
+    
     for key in input_dims:
-        if key == "lev":
-            nlev = input_dims["lev"]
-        elif key == "ilev":
-            nilev = input_dims["ilev"]
+        if key == "lev" or key == 'pfull':
+           nlev = input_dims[key]
+           levkey=key
+        elif key == "ilev" or key == 'phalf':
+           nilev = input_dims[key]
         elif key == "ncol":
-            ncol = input_dims["ncol"]
-        elif (key == "nlon") or (key =="lon"):
-            nlon = input_dims[key]
-            lonkey=key
-        elif (key == "nlat") or (key == "lat"):
-            nlat = input_dims[key]
-            latkey=key
+           ncol = input_dims["ncol"]
+        elif (key == "nlon") or (key =="lon") or (key == "grid_xt"):
+           nlon = input_dims[key]
+           lonkey=key
+        elif (key == "nlat") or (key == "lat")or (key == "grid_yt"):
+           nlat = input_dims[key]
+           latkey=key
         
-    if (nlev == -1) : 
+    if (nlev == -1) and ndims > 3: 
         if me.get_rank()==0: 
            print "COULD NOT LOCATE valid dimension lev => EXITING...."
         sys.exit() 
@@ -213,11 +212,15 @@ def main(argv):
                    print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
                 sys.exit() 
         else:
-            if ( nlev != int(input_dims["lev"]) or ( nlat != int(input_dims[latkey]))\
-                  or ( nlon != int(input_dims[lonkey]))): 
-                if me.get_rank() == 0:
-                   print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
-                sys.exit() 
+            if nlat != int(input_dims[latkey]) or nlon != int(input_dims[lonkey]): 
+               if me.get_rank() == 0:
+                  print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
+               sys.exit() 
+            if nlev > 0:
+               if nlev != int(input_dims[levkey]):
+                  if me.get_rank() == 0:
+                     print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
+                  sys.exit()   
 
     # Get 2d vars, 3d vars and all vars (For now include all variables) 
     vars_dict_all = o_files[0].variables
@@ -350,21 +353,28 @@ def main(argv):
         # Create variables
         if me.get_rank() == 0 and (verbose == True):
             print "Creating variables ....."
-        v_lev = nc_sumfile.create_variable("lev", 'f', ('nlev',))
+       
         v_vars = nc_sumfile.create_variable("vars", 'S1', ('nvars', 'str_size'))
-        v_var3d = nc_sumfile.create_variable("var3d", 'S1', ('nvars3d', 'str_size'))
-        v_var2d = nc_sumfile.create_variable("var2d", 'S1', ('nvars2d', 'str_size'))
+        if num_3d > 0:
+           v_lev = nc_sumfile.create_variable("lev", 'f', ('nlev',))
+           v_var3d = nc_sumfile.create_variable("var3d", 'S1', ('nvars3d', 'str_size'))
+        if num_2d > 0:
+           v_var2d = nc_sumfile.create_variable("var2d", 'S1', ('nvars2d', 'str_size'))
         if not opts_dict['gmonly']:
             if (is_SE == True):
-                v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'ncol'))
-                v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'ncol'))
-                v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'ncol'))
-                v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'ncol'))
+                if num_3d > 0:
+                   v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'ncol'))
+                   v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'ncol'))
+                if num_2d > 0:
+                   v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'ncol'))
+                   v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'ncol'))
             else:
-                v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
-                v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
-                v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'nlat', 'nlon'))
-                v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'nlat', 'nlon'))
+                if num_3d > 0:
+                   v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
+                   v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
+                if num_2d > 0:
+                   v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'nlat', 'nlon'))
+                   v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'nlat', 'nlon'))
 
             v_RMSZ = nc_sumfile.create_variable("RMSZ", 'f', ('nvars', 'ens_size'))
         v_gm = nc_sumfile.create_variable("global_mean", 'f', ('nvars', 'ens_size'))
@@ -411,14 +421,17 @@ def main(argv):
             eq_d2_var_names.append(tt)
 
         v_vars[:] = eq_all_var_names[:]
-        v_var3d[:] = eq_d3_var_names[:]
-        v_var2d[:] = eq_d2_var_names[:]
+        if num_3d > 0:
+           v_var3d[:] = eq_d3_var_names[:]
+        if num_2d > 0:
+           v_var2d[:] = eq_d2_var_names[:]
 
         # Time-invarient metadata
         if me.get_rank() == 0 and (verbose == True):
             print "Assigning time invariant metadata ....."
-        lev_data = vars_dict["lev"]
-        v_lev = lev_data
+        if num_3d > 0:
+           lev_data = vars_dict["lev"]
+           v_lev = lev_data
 
     # Form ensembles, each missing one member; compute RMSZs and global means
     #for each variable, we also do max norm also (currently done in pyStats)
