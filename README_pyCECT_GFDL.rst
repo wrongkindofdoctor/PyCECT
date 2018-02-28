@@ -85,6 +85,12 @@ sh-4.2$: conda install --channel conda-forge scipy
 sh-4.2$: conda install --channel conda-forge mpi4py
 sh-4.2$: pip install --user ASAPTools
 
+OR: recreate the environment with the file pycect_package-list.txt
+sh-4.2$: conda create -n <my_environment> --file  pycect_package-list.txt
+
+then install ASAPTools:
+sh-4.2$: pip install --user ASAPTools
+
 Notes and examples:
 --------------------------------------------
 (1) Activate the anaconda environment with the 
