@@ -8,11 +8,10 @@ import re
 from asaptools.partition import EqualStride, Duplicate,EqualLength
 import asaptools.simplecomm as simplecomm 
 import pyEnsLib
-
 # This routine creates a summary file from an ensemble of AM4 history files
 def main(argv):
     # Get command line stuff and store in a dictionary
-    s = 'tag= compset= esize= tslice= res= sumfile= indir= sumfiledir= mach= verbose jsonfile= mpi_enable maxnorm gmonly popens cumul regx= startMon= endMon= fIndex='
+    s = 'tag= compset= esize= tslice= outputfreq= res= sumfile= indir= sumfiledir= mach= verbose jsonfile= mpi_enable maxnorm gmonly popens cumul regx= startMon= endMon= fIndex= histfolder='
     optkeys = s.split()
     try: 
         opts, args = getopt.getopt(argv, "h", optkeys)
@@ -29,6 +28,7 @@ def main(argv):
     opts_dict['mach'] = 'gaea'
     opts_dict['esize'] = 151
     opts_dict['tslice'] = 0
+    opts_dict['outputfreq'] = 1
     opts_dict['res'] = ''
     opts_dict['sumfile'] = 'ens.summary.nc'
     opts_dict['indir'] = './'
@@ -44,6 +44,7 @@ def main(argv):
     opts_dict['startMon'] = 1
     opts_dict['endMon'] = 1
     opts_dict['fIndex'] = 151
+    opts_dict['histfolder'] = 1
 
     # This creates the dictionary of input arguments 
     opts_dict = pyEnsLib.getopt_parseconfig(opts,optkeys,'ES',opts_dict)
@@ -54,12 +55,24 @@ def main(argv):
     esize = int(st)
     # only require tag, compset, and res if cesm
     if opts_dict['mach'] == 'gaea':
-       # Put output time frequency options (tslice=0,1,2) in a dictionary
+       # Put output history folder options (histfolder=0,1,2) in a dictionary
        output_dict=dict()
        output_dict[0] = ['1x12m0d']
-       output_dict[1] = ['1x1m0d','1x1m0d']   
+       output_dict[1] = ['1x1m0d']   
        output_dict[2] = ['1x0m2d','1x0m8d','2x0m1d']
+       output_allowed_opts = [0,1,4,8]
+       if opts_dict['outputfreq'] not in output_allowed_opts:
+          print 'Error: output frequency must be 0 (monthly)\n 1 (annual)\n 4 (4xdaily)\n 8 (8xdaily)'
+          sys.exit()
+       histfolder = output_dict[opts_dict['histfolder']]
 
+       outputfreq_dict=dict()
+       outputfreq_dict[0] = ['month']
+       outputfreq_dict[1] = ['year']   
+       outputfreq_dict[4] = ['4xdaily']
+       outputfreq_dict[8] = ['8xdaily']
+                    
+       outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
     else:
        if not (opts_dict['tag'] and opts_dict['compset'] and opts_dict['mach'] or opts_dict['res']):
           print 'Please specify --tag, --compset, --mach and --res options'
@@ -71,9 +84,8 @@ def main(argv):
     # Form ensembles, each missing one member; compute RMSZs and global means
     #    #for each variable, we also do max norm also (currently done in pyStats)
     tslice = opts_dict['tslice']
-    time_out = output_dict[tslice]
-    input_dir = opts_dict['indir']
-
+    input_dir = opts_dict['indir']      
+   
     # The var list that will be excluded
     ex_varlist=[]
     inc_varlist=[]
@@ -82,8 +94,7 @@ def main(argv):
     if opts_dict['mpi_enable']:
        me=simplecomm.create_comm()
     else:
-       me=simplecomm.create_comm(not opts_dict['mpi_enable'])
-    
+       me=simplecomm.create_comm(not opts_dict['mpi_enable'])   
     if me.get_rank() == 0:
        print 'Running pyEnsSum!'
 
@@ -128,8 +139,8 @@ def main(argv):
                   new_root = root.replace(input_dir,'')
                   for f in files:
                       file_path=os.path.join(new_root,f)
-                      for t in time_out:
-                          if t in file_path and '19790101' in file_path:
+                      for h in histfolder:
+                          if h in file_path and outputfreq in file_path:
                              in_files_temp.append(file_path)
       
        in_files=sorted(in_files_temp)
@@ -175,6 +186,7 @@ def main(argv):
        print "Getting spatial dimensions"
     # Look at first file and get dims
     input_dims = o_files[0].dimensions
+    print in_files
     ndims = len(input_dims)
 
     nlev = -1
@@ -200,10 +212,10 @@ def main(argv):
         elif (key == "nlat") or (key == "lat")or (key == "grid_yt"):
            nlat = input_dims[key]
            latkey=key
-    if (nlev == -1): 
-        if me.get_rank()==0: 
-           print "COULD NOT LOCATE valid dimension lev => EXITING..."
-        sys.exit() 
+    #if (nlev == -1): 
+        #if me.get_rank()==0: 
+        #  print "COULD NOT LOCATE valid dimension lev => EXITING..."
+        #sys.exit() 
     if (( ncol == -1) and ((nlat == -1) or (nlon == -1))):
         if me.get_rank()==0: 
            print "Need either lat/lon or ncol  => EXITING...."
@@ -227,16 +239,25 @@ def main(argv):
     for count, this_file in enumerate(o_files):
         input_dims = this_file.dimensions     
         if (is_SE == True):
-            if ( nlev != int(input_dims[levkey]) or ( ncol != int(input_dims["ncol"]))):
-                if me.get_rank() == 0:
-                   print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
-                sys.exit() 
+            if nlev != int(input_dims[levkey]) or ncol != int(input_dims["ncol"]):
+               if me.get_rank() == 0:
+                  print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
+               sys.exit() 
+            if (nlev > 0):
+                if nlev != int(input_dims[levkey]):
+                   if me.get_rank() == 0:
+                      print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
+                   sys.exit()      
         else:
-            if ( nlev != int(input_dims[levkey]) or ( nlat != int(input_dims[latkey]))\
-                  or ( nlon != int(input_dims[lonkey]))): 
-                if me.get_rank() == 0:
-                   print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
-                sys.exit()
+            if nlat != int(input_dims[latkey]) or nlon != int(input_dims[lonkey]): 
+               if me.get_rank() == 0:
+                  print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
+               sys.exit()
+            if nlev > 0:
+               if nlev != int(input_dims[levkey]):
+                  if me.get_rank() == 0:
+                     print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
+                  sys.exit()   
 
     # Get 2d vars, 3d vars and all vars (For now include all variables) 
     vars_dict_all = o_files[0].variables
@@ -349,8 +370,8 @@ def main(argv):
        else:
           nc_sumfile.create_dimension('nlat', nlat)
           nc_sumfile.create_dimension('nlon', nlon)
-
-       nc_sumfile.create_dimension('nlev', nlev)
+       if num_3d > 0:
+          nc_sumfile.create_dimension('nlev', nlev)
        nc_sumfile.create_dimension('ens_size', esize)
        nc_sumfile.create_dimension('nvars', num_3d + num_2d)
        nc_sumfile.create_dimension('nvars3d', num_3d)
@@ -371,9 +392,10 @@ def main(argv):
        # Create variables
        if me.get_rank() == 0 and (verbose == True):
           print "Creating variables ....."
-       v_lev = nc_sumfile.create_variable("lev", 'f', ('nlev',))
+       if num_3d > 0:
+          v_lev = nc_sumfile.create_variable("lev", 'f', ('nlev',))
+          v_var3d = nc_sumfile.create_variable("var3d", 'S1', ('nvars3d', 'str_size'))
        v_vars = nc_sumfile.create_variable("vars", 'S1', ('nvars', 'str_size'))
-       v_var3d = nc_sumfile.create_variable("var3d", 'S1', ('nvars3d', 'str_size'))
        v_var2d = nc_sumfile.create_variable("var2d", 'S1', ('nvars2d', 'str_size'))
        if not opts_dict['gmonly']:
           if (is_SE == True):
@@ -382,8 +404,9 @@ def main(argv):
               v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'ncol'))
               v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'ncol'))
           else:
-              v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
-              v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
+              if num_3d > 0:
+                 v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
+                 v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
               v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'nlat', 'nlon'))
               v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'nlat', 'nlon'))
 
@@ -431,26 +454,32 @@ def main(argv):
            eq_d2_var_names.append(tt)
 
        v_vars[:] = eq_all_var_names[:]
-       v_var3d[:] = eq_d3_var_names[:]
-       v_var2d[:] = eq_d2_var_names[:]
+       if num_3d > 0:
+          v_var3d[:] = eq_d3_var_names[:]
+       if num_2d > 0:
+          v_var2d[:] = eq_d2_var_names[:]
 
        # Time-invarient metadata
        if me.get_rank() == 0 and (verbose == True):
           print "Assigning time invariant metadata ....."
-       lev_data = vars_dict[levkey]
-       v_lev = lev_data
+       if num_3d > 0:
+          lev_data = vars_dict[levkey]
+          v_lev = lev_data
 
     # Form ensembles, each missing one member; compute RMSZs and global means
     # for each variable, we also do max norm also (currently done in pyStats)
   
     if not opts_dict['cumul']:
        # Partition the var list
-        
-       var3_list_loc=me.partition(d3_var_names,func=EqualStride(),involved=True)
-       var2_list_loc=me.partition(d2_var_names,func=EqualStride(),involved=True)
+       if num_3d > 0: 
+          var3_list_loc=me.partition(d3_var_names,func=EqualStride(),involved=True)
+       if num_2d > 0:
+          var2_list_loc=me.partition(d2_var_names,func=EqualStride(),involved=True)
     else:
-       var3_list_loc=d3_var_names
-       var2_list_loc=d2_var_names
+       if num_3d > 0: 
+          var3_list_loc=d3_var_names
+       if num_2d > 0: 
+          var2_list_loc=d2_var_names
 
     # Calculate global means #
     if me.get_rank() == 0 and (verbose == True):
