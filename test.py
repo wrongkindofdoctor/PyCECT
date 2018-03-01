@@ -11,7 +11,7 @@ import pyEnsLib
 # This routine creates a summary file from an ensemble of AM4 history files
 def main(argv):
     # Get command line stuff and store in a dictionary
-    s = 'tag= compset= esize= tslice= outputfreq= res= sumfile= indir= sumfiledir= mach= verbose jsonfile= mpi_enable maxnorm gmonly popens cumul regx= startMon= endMon= fIndex= histfolder='
+    s = 'tag= compset= esize= tslice= outputfreq= res= sumfile= indir= sumfiledir= mach= verbose jsonfile= mpi_enable maxnorm gmonly popens cumul regx= startMon= endMon= fIndex= histfolder= usetiles='
     optkeys = s.split()
     try: 
         opts, args = getopt.getopt(argv, "h", optkeys)
@@ -45,6 +45,7 @@ def main(argv):
     opts_dict['endMon'] = 1
     opts_dict['fIndex'] = 151
     opts_dict['histfolder'] = 1
+    opts_dict['use_tiles'] = 1
 
     # This creates the dictionary of input arguments 
     opts_dict = pyEnsLib.getopt_parseconfig(opts,optkeys,'ES',opts_dict)
@@ -73,6 +74,8 @@ def main(argv):
        outputfreq_dict[8] = ['8xdaily']
                     
        outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
+       use_tiles = opts_dict['use_tiles']
+        
     else:
        if not (opts_dict['tag'] and opts_dict['compset'] and opts_dict['mach'] or opts_dict['res']):
           print 'Please specify --tag, --compset, --mach and --res options'
@@ -138,10 +141,12 @@ def main(argv):
                   # to file name path during read/write
                   new_root = root.replace(input_dir,'')
                   for f in files:
-                      file_path=os.path.join(new_root,f)
-                      for h in histfolder:
-                          if h in file_path and outputfreq in file_path:
-                             in_files_temp.append(file_path)
+                      for tx in use_tiles:
+                          if '.tile' + str(tx) in f: 
+                             file_path=os.path.join(new_root,f)
+                             for h in histfolder:
+                                 if h in file_path and outputfreq in file_path:
+                                    in_files_temp.append(file_path)
       
        in_files=sorted(in_files_temp)
        #print 'in_files=',in_files
@@ -186,8 +191,8 @@ def main(argv):
        print "Getting spatial dimensions"
     # Look at first file and get dims
     input_dims = o_files[0].dimensions
-    print in_files
     ndims = len(input_dims)
+    print ndims
 
     nlev = -1
     nilev = -1
@@ -212,10 +217,10 @@ def main(argv):
         elif (key == "nlat") or (key == "lat")or (key == "grid_yt"):
            nlat = input_dims[key]
            latkey=key
-    #if (nlev == -1): 
-        #if me.get_rank()==0: 
-        #  print "COULD NOT LOCATE valid dimension lev => EXITING..."
-        #sys.exit() 
+    if nlev == -1 and ndims > 3: 
+       if me.get_rank()==0: 
+          print "COULD NOT LOCATE valid dimension lev => EXITING..."
+       sys.exit() 
     if (( ncol == -1) and ((nlat == -1) or (nlon == -1))):
         if me.get_rank()==0: 
            print "Need either lat/lon or ncol  => EXITING...."
@@ -372,10 +377,11 @@ def main(argv):
           nc_sumfile.create_dimension('nlon', nlon)
        if num_3d > 0:
           nc_sumfile.create_dimension('nlev', nlev)
+          nc_sumfile.create_dimension('nvars3d', num_3d)
+       if num_2d > 0:
+          nc_sumfile.create_dimension('nvars2d', num_2d)
        nc_sumfile.create_dimension('ens_size', esize)
        nc_sumfile.create_dimension('nvars', num_3d + num_2d)
-       nc_sumfile.create_dimension('nvars3d', num_3d)
-       nc_sumfile.create_dimension('nvars2d', num_2d)
        nc_sumfile.create_dimension('str_size', str_size)
 
        # Set global attributes
@@ -396,19 +402,21 @@ def main(argv):
           v_lev = nc_sumfile.create_variable("lev", 'f', ('nlev',))
           v_var3d = nc_sumfile.create_variable("var3d", 'S1', ('nvars3d', 'str_size'))
        v_vars = nc_sumfile.create_variable("vars", 'S1', ('nvars', 'str_size'))
-       v_var2d = nc_sumfile.create_variable("var2d", 'S1', ('nvars2d', 'str_size'))
+       if num_2d > 0:     
+          v_var2d = nc_sumfile.create_variable("var2d", 'S1', ('nvars2d', 'str_size'))
        if not opts_dict['gmonly']:
-          if (is_SE == True):
-              v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'ncol'))
-              v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'ncol'))
-              v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'ncol'))
-              v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'ncol'))
+          if is_SE == True:
+             v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'ncol'))
+             v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'ncol'))
+             v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'ncol'))
+             v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'ncol'))
           else:
-              if num_3d > 0:
-                 v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
-                 v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
-              v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'nlat', 'nlon'))
-              v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'nlat', 'nlon'))
+            if num_3d > 0:
+               v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
+               v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
+            if num_2d > 0:  
+               v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'nlat', 'nlon'))
+               v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'nlat', 'nlon'))
 
           v_RMSZ = nc_sumfile.create_variable("RMSZ", 'f', ('nvars', 'ens_size'))
        v_gm = nc_sumfile.create_variable("global_mean", 'f', ('nvars', 'ens_size'))
@@ -468,7 +476,8 @@ def main(argv):
 
     # Form ensembles, each missing one member; compute RMSZs and global means
     # for each variable, we also do max norm also (currently done in pyStats)
-  
+    var3_list_loc = []
+    var2_list_loc = []
     if not opts_dict['cumul']:
        # Partition the var list
        if num_3d > 0: 
