@@ -15,6 +15,7 @@ import itertools
 from itertools import islice
 from EET import exhaustive_test
 from scipy import linalg as sla
+import gmeantools
 #
 # Parse header file of a netcdf to get the variable 3d/2d/1d list
 #
@@ -48,6 +49,8 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
           nlev=input_dims["lev"]
        elif 'pfull' in input_dims:
           nlev=input_dims['pfull']
+       else:
+          nlev=1
 
     # Create array variables based on is_SE
     if (is_SE == True):
@@ -70,14 +73,34 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
       elif 'grid_xt' in input_dims:
          nlon = input_dims["grid_xt"]
          nlat = input_dims["grid_yt"]    
+
+    npts2d=nlat*nlon
+    npts3d=nlev*nlat*nlon
+  
     if popens:
        Zscore3d = np.zeros((len(var_name3d),len(o_files),(nbin)),dtype=np.float32) 
        Zscore2d = np.zeros((len(var_name2d),len(o_files),(nbin)),dtype=np.float32) 
     else:
        if n3d > 0:
           Zscore3d = np.zeros((len(var_name3d),len(o_files)),dtype=np.float32) 
+          output3d = np.zeros((len(o_files),nlev,nlat,nlon),dtype=np.float32)
+          ens_avg3d=np.zeros((len(var_name3d),nlev,nlat,nlon),dtype=np.float32)
+          ens_stddev3d=np.zeros((len(var_name3d),nlev,nlat,nlon),dtype=np.float32)
+       else: 
+          Zscore3d = np.zeros((1,len(o_files)),dtype=np.float32) 
+          output3d = np.zeros((len(o_files),nlat,nlon),dtype=np.float32)
+          ens_avg3d=np.zeros((1,nlat,nlon),dtype=np.float32)
+          ens_stddev3d=np.zeros((1,nlat,nlon),dtype=np.float32)
        if n2d > 0:
           Zscore2d = np.zeros((len(var_name2d),len(o_files)),dtype=np.float32) 
+          output2d = np.zeros((len(o_files),nlat,nlon),dtype=np.float32) 
+          ens_avg2d=np.zeros((len(var_name2d),nlat,nlon),dtype=np.float32)
+          ens_stddev2d=np.zeros((len(var_name2d),nlat,nlon),dtype=np.float32)
+       else: 
+          Zscore2d = np.zeros((1,len(o_files)),dtype=np.float32) 
+          output2d = np.zeros((len(o_files),nlat,nlon),dtype=np.float32) 
+          ens_avg2d=np.zeros((1,nlat,nlon),dtype=np.float32)
+          ens_stddev2d=np.zeros((1,nlat,nlon),dtype=np.float32)
     avg3d={}
     stddev3d={}
     avg2d={}
@@ -90,8 +113,13 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
        temp1,temp2,area_wgt,z_wgt=get_area_wgt(o_files,is_SE,input_dims,nlev,popens)
        if n3d > 0:
           gm3d = np.zeros((len(var_name3d)),dtype=np.float32)
+       else:
+          gm3d = np.zeros(1,dtype=np.float32)
        if n2d > 0:
           gm2d = np.zeros((len(var_name2d)),dtype=np.float32)
+       else: 
+          gm2d = np.zeros(1,dtype=np.float32)
+
     if n3d > 0:
        for vcount,vname in enumerate(var_name3d):
            #Read in vname's data of all files
@@ -142,53 +170,50 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
               #   np.savetxt(fout,Zscore[0,3,:], fmt='%.3e')
                  Zscore3d[vcount,fcount,:]=Zscore[:]
               #print 'zscore3d vcount,fcount=',vcount,fcount,Zscore3d[vcount,fcount]
-
-    for vcount,vname in enumerate(var_name2d):
-      #Read in vname's data of all files
-      for fcount, this_file in enumerate(o_files):
-        data=this_file.variables[vname]
-        if (is_SE == True):
-          output2d[fcount,:]=data[tslice,:]
-      
-        else:
-          output2d[fcount,:,:]=data[tslice,:,:]
-
-      #Generate ens_avg and esn_stddev to store in the ensemble summary file
-      if popens:
-         moutput2d=np.ma.masked_values(output2d,data._FillValue)
-         ens_avg2d[vcount]=np.ma.average(moutput2d,axis=0)
-         ens_stddev2d[vcount]=np.ma.std(moutput2d,axis=0,dtype=np.float32)
-      else:
-         ens_avg2d[vcount]=np.average(output2d,axis=0).astype(np.float32)
-         ens_stddev2d[vcount]=np.std(output2d,axis=0,dtype=np.float64).astype(np.float32)
-         if cumul:
-            temp3,gm2d[vcount]=calc_global_mean_for_onefile(this_file,area_wgt,[],[vname],temp1,ens_avg2d[vcount],tslice,is_SE,nlev,opts_dict)
-
-      if not cumul:
-         #Generate avg, stddev and zscore for 3d variable
-         for fcount,this_file in enumerate(o_files):
-
-           data=this_file.variables[vname]
-           if not popens:
-              new_index=np.where(indices!=fcount)
-              ensemble2d = output2d[new_index] 
-              avg2d=np.average(ensemble2d,axis=0)
-              stddev2d=np.std(ensemble2d,axis=0,dtype=np.float64) 
-
-              flag2d = False
-              count2d = 0
-              count2d,ret_val=calc_Z(output2d[fcount].astype(np.float64),avg2d.astype(np.float64),stddev2d.astype(np.float64),count2d,flag2d)
-              Zscore=np.sum(np.square(ret_val))
-
-              if (count2d < npts2d):
-                Zscore2d[vcount,fcount]=np.sqrt(Zscore/(npts2d-count2d))
-              else:
-                print "WARNING: no variance in "+vname
+    if n2d > 0:
+       for vcount,vname in enumerate(var_name2d):
+           #Read in vname's data of all files
+           for fcount, this_file in enumerate(o_files):
+               data=this_file.variables[vname]
+               if is_SE == True:
+                  output2d[fcount,:]=data[tslice,:]
+               else:
+                  output2d[fcount,:,:]=data[tslice,:,:]
+           #Generate ens_avg and esn_stddev to store in the ensemble summary file
+           if popens:
+              moutput2d=np.ma.masked_values(output2d,data._FillValue)
+              ens_avg2d[vcount]=np.ma.average(moutput2d,axis=0)
+              ens_stddev2d[vcount]=np.ma.std(moutput2d,axis=0,dtype=np.float32)
            else:
-              rmask=this_file.variables['REGION_MASK']
-              Zscore=pop_zpdf(output2d[fcount],nbin,(minrange,maxrange),ens_avg2d[vcount],ens_stddev2d[vcount],data._FillValue,threshold,rmask,opts_dict)
-              Zscore2d[vcount,fcount,:]=Zscore[:]
-              #print 'zscore2d vcount,fcount=',vcount,fcount,Zscore2d[vcount,fcount]
+              ens_avg2d[vcount]=np.average(output2d,axis=0).astype(np.float32)
+              ens_stddev2d[vcount]=np.std(output2d,axis=0,dtype=np.float64).astype(np.float32)
+           if cumul:
+              temp3,gm2d[vcount]=calc_global_mean_for_onefile(this_file,area_wgt,[],[vname],temp1,ens_avg2d[vcount],tslice,is_SE,nlev,opts_dict)
+
+           if not cumul:
+              #Generate avg, stddev and zscore for 2d variable
+              for fcount,this_file in enumerate(o_files):
+                  data=this_file.variables[vname]
+                  if not popens:
+                     new_index=np.where(indices!=fcount)
+                     ensemble2d = output2d[new_index] 
+                     avg2d=np.average(ensemble2d,axis=0)
+                     stddev2d=np.std(ensemble2d,axis=0,dtype=np.float64) 
+
+                     flag2d = False
+                     count2d = 0
+                     count2d,ret_val=calc_Z(output2d[fcount].astype(np.float64),avg2d.astype(np.float64),stddev2d.astype(np.float64),count2d,flag2d)
+                     Zscore=np.sum(np.square(ret_val))
+
+                     if count2d < npts2d:
+                        Zscore2d[vcount,fcount]=np.sqrt(Zscore/(npts2d-count2d))
+                     else:
+                        print "WARNING: no variance in " + vname
+                  else:
+                     rmask=this_file.variables['REGION_MASK']
+                     Zscore=pop_zpdf(output2d[fcount],nbin,(minrange,maxrange),ens_avg2d[vcount],ens_stddev2d[vcount],data._FillValue,threshold,rmask,opts_dict)
+                     Zscore2d[vcount,fcount,:]=Zscore[:]
+                     #print 'zscore2d vcount,fcount=',vcount,fcount,Zscore2d[vcount,fcount]
      
     return Zscore3d,Zscore2d,ens_avg3d,ens_stddev3d,ens_avg2d,ens_stddev2d,gm3d,gm2d
 
@@ -488,7 +513,7 @@ def pop_area_avg(data, weight):
     #weights are for lat 
     a = np.ma.average(data, weights=weight)
     return a
-
+    res = np.ma.sum(var*cellArea)/cellArea.sum()
 def get_lev(file_dim_dict,lev_name):
     return file_dim_dict[lev_name]
    
@@ -515,7 +540,7 @@ def get_nlev(o_files,popens):
 #
 def get_area_wgt(o_files,is_SE,input_dims,nlev,popens): 
     z_wgt={}
-    if (is_SE == True):
+    if (is_SE == True): 
         ncol = input_dims["ncol"]
         output3d = np.zeros((nlev, ncol))
         output2d = np.zeros(ncol)
@@ -535,10 +560,9 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens):
               nlon = get_lev(input_dims,'grid_xt') 
               nlat = get_lev(input_dims,'grid_yt')
               gs_tiles = []
-              for tx in use_tiles:
-                  for f in o_files:  
-                      if 
-                      if stgs_tiles.append(ncopen(fYear + '.grid_spec.tile'+str(tx)+'.nc'))
+              #for tx in use_tiles:
+              #    for f in o_files:  
+    
               
               geoLat = cube_sphere_aggregate('grid_latt',gs_tiles)
               geoLon = cube_sphere_aggregate('grid_lont',gs_tiles)
@@ -949,6 +973,9 @@ def getopt_parseconfig(opts,optkeys,caller,opts_dict):
     elif opt == '-h' and caller == 'ESP':
       EnsSumPop_usage()
       sys.exit()
+    elif opt == '-h' and caller == 'GFDL':
+         GFDL_usage()
+         sys.exit()
     elif opt == '-f':
       opts_dict['orig']=arg
     elif opt == '-m':
@@ -1219,6 +1246,37 @@ def comparePCAscores(ifiles,new_scores,sigma_scores_gm,opts_dict,me):
 #
 # Command options for pyCECT.py
 #
+#
+# Command options for pyCECT.py
+#
+def GFDL_usage():
+    print '\n Compare test runs to an ensemble summary file. \n'
+    print '  ----------------------------'
+    print '   Args for pyCECT :'
+    print '  ----------------------------'
+    print '   pyCECT.py'
+    print '   -h                      : prints out this usage message'
+    print '   --verbose               : prints out in verbose mode (turned off by default)'
+    print '   --sumfile  <ifile>      : the ensemble summary file (generated by pyEnsSum.py)'
+    print '   --indir    <path>       : directory containing the input run files (at least 3 files)'
+    print '   --mach     <machine name> : name of working machine, default is Gaea'
+    print '   --outputfreq <num>      : model output frequency: 0=monthly,1 =annual mean, 4=4xdaily,8=8xdaily (default = 0)'
+    print '   --usetiles <num>        : which Cubed sphere tile(s) to use; default = 1'
+    print '   --histfolder    <name>  : index for history folder name; dedault is 1, which = 1x1m0d (1 segment of 1 month of output)'
+    print '  ----------------------------'
+    print '   Args for AM-CECT and UF-AM-ECT:'
+    print '  ----------------------------'
+    print '   --nPC <num>             : number of principal components (PCs) to check (default = 20, but can\'t be greater than the number of variables)'
+    print '   --sigMul   <num>        : number of standard deviations away from the mean defining the "acceptance region" (default = 2)'
+    print '   --minPCFail <num>       : minimum number of PCs that must fail the specified number of runs for a FAILURE (default = 3)'
+    print '   --minRunFail <num>      : minimum number of runs that <minPCfail> PCs must fail for a FAILURE (default = 2)'
+    print '   --numRunFile <num>      : total number of runs to include in test (default = 3)'
+    print '   --tslice <num>          : which time slice to use from input run files (default = 1)'
+    print '   --printVarTest          : print out variable comparisons to RMSZ and global means (turned off by default)'
+    print '   --prn_std_mean          : enable printing out sum of standardized mean of all variables in decreasing order'
+    print '   --eet <num>             : enable Ensemble Exhaustive Test (EET) to compute failure percent of <num> runs (greater than or equal to numRunFile)'
+    print 'Version 3.0.0'
+
 def CECT_usage():
     print '\n Compare test runs to an ensemble summary file. \n'
     print '  ----------------------------'
@@ -1758,64 +1816,4 @@ def chunk(it,size):
     it = iter(it)
     return iter(lambda:tuple(islice(it,size)),())
 
-# GFDL routines for dealing with spatial averaging on cubed-sphere tiles
-def mask_latitude_bands(var,cellArea,geoLat,geoLon,region=None):
-    if (region == 'tropics'):
-      var = np.ma.masked_where(np.logical_or(geoLat < -30., geoLat > 30.),var)
-      cellArea = np.ma.masked_where(np.logical_or(geoLat < -30., geoLat > 30.),cellArea)
-    elif (region == 'nh'):
-      var = np.ma.masked_where(np.less_equal(geoLat,30.),var)
-      cellArea  = np.ma.masked_where(np.less_equal(geoLat,30.),cellArea)
-    elif (region == 'sh'):
-      var  = np.ma.masked_where(np.greater_equal(geoLat,-30.),var)
-      cellArea  = np.ma.masked_where(np.greater_equal(geoLat,-30.),cellArea)
-    elif (region == 'global'):
-      var  = var
-      cellArea = cellArea
-    return var, cellArea
 
-def area_mean(var,cellArea,geoLat,geoLon,cellFrac=None,soilFrac=None,region='global',varName=None,
-              cellDepth=None, component=None):
-    # Land-specific modifications
-    if component == 'land':
-        moduleDic = getWebsiteVariablesDic()
-        # Read dictionary of keys
-        if (varName in moduleDic.keys()):
-          module = moduleDic[varName]
-        elif (varName.lower() in moduleDic.keys()):
-          module = moduleDic[varName.lower()]
-        else:
-          module = ''
-        # Create a weighting factor
-        if module == 'vegn':
-          cellArea = cellArea*cellFrac*soilFrac
-        else:
-          cellArea = cellArea*cellFrac
-        # Create a 3-D mask if needed
-        if cellDepth is not None:
-         if var.shape[0] == cellDepth.shape[0]:
-           cellArea = np.tile(cellArea[None,:], (cellDepth.shape[0],1,1))
-           geoLat = np.tile(geoLat[None,:], (cellDepth.shape[0],1,1))
-           geoLon = np.tile(geoLon[None,:], (cellDepth.shape[0],1,1))
-         else:
-           print('Warning: inconsisent dimensions between varName and the cell depth axis.', \
-                 var.shape[0], cellDepth.shape[0])
-           null_result = np.ma.masked_where(True,0.)
-           return null_result, null_result
-        # Apply data mask to weighting mask
-        cellArea.mask = var.mask
-    var, cellArea = mask_latitude_bands(var,cellArea,geoLat,geoLon,region=region)
-    #-- Land depth averaging and summation
-    if cellDepth is not None:
-      summed = np.ma.sum(var * cellArea * np.tile(cellDepth[:,None,None], (1,var.shape[1],var.shape[2])))
-      var = np.ma.average(var,axis=0,weights=cellDepth)
-      res = np.ma.sum(var*cellArea)/cellArea.sum()
-      return res, summed
-    else:
-      res = np.ma.sum(var*cellArea)/cellArea.sum()
-      return res, cellArea.sum()
-
-def cube_sphere_aggregate(var,tiles):
-    return np.ma.concatenate((tiles[0].variables[var][:], tiles[1].variables[var][:],\
-                              tiles[2].variables[var][:], tiles[3].variables[var][:],\
-                              tiles[4].variables[var][:], tiles[5].variables[var][:]),axis=-1)
