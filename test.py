@@ -46,6 +46,7 @@ def main(argv):
     opts_dict['histfolder'] = 1
     opts_dict['use_tiles'] = 1
     opts_dict['mach'] = 'gaea'
+    opts_dict['model'] = 'gfdl'
 
     # This creates the dictionary of input arguments 
     opts_dict = pyEnsLib.getopt_parseconfig(opts,optkeys,'ES',opts_dict)
@@ -55,7 +56,7 @@ def main(argv):
     st = opts_dict['esize']
     esize = int(st)
     # only require tag, compset, and res if cesm
-    if opts_dict['mach'] == 'gaea':
+    if opts_dict['model'] == 'gfdl':
        # Put output history folder options (histfolder=0,1,2) in a dictionary
        output_dict=dict()
        output_dict[0] = ['1x12m0d']
@@ -130,23 +131,26 @@ def main(argv):
 
     if os.path.exists(input_dir):
        # Get the list of files
-       in_dirs_temp = os.listdir(input_dir)
        in_files_temp =[]
        # get directories with output for desired time average
-       for d in in_dirs_temp:
-           for root,subdirs,files in os.walk(os.path.join(input_dir,d)):
-               if len(files)>0:
-                  # remove input_dir from root, since input_dir is joined
-                  # to file name path during read/write
-                  new_root = root.replace(input_dir,'')
-                  for f in files:
-                      for tx in use_tiles:
-                          if '.tile' + str(tx) in f: 
-                             file_path=os.path.join(new_root,f)
-                             #print file_path
-                             for h in histfolder:
-                                 if h in file_path and outputfreq in file_path:
-                                    in_files_temp.append(file_path)
+       if opts_dict['model'] == 'gfdl':
+          in_dirs_temp = os.listdir(input_dir)
+          for d in in_dirs_temp:
+              for root,subdirs,files in os.walk(os.path.join(input_dir,d)):
+                  if len(files)>0:
+                     # remove input_dir from root, since input_dir is joined
+                     # to file name path during read/write
+                     new_root = root.replace(input_dir,'')
+                     for f in files:
+                         for tx in use_tiles:
+                             if '.tile' + str(tx) in f: 
+                                file_path=os.path.join(new_root,f)
+                                #print file_path
+                                for h in histfolder:
+                                    if h in file_path and outputfreq in file_path:
+                                       in_files_temp.append(file_path)
+       else:
+          in_files_temp = os.listdir(input_dir)
     else:
        if me.get_rank()==0:
           print 'Input directory: ',input_dir,' not found'
@@ -154,11 +158,14 @@ def main(argv):
         
     # loop through individual tiles
     for tx in tiles:
-        print 'Tile is ' + str(tx)
         in_files=[]
-        tstring = 'tile' + str(tx)
-        in_files = [f for f in in_files_temp if tstring in f]
-        
+        if opts_dict['model'] == 'gfdl':
+           print 'Tile is ' + str(tx)
+           tstring = 'tile' + str(tx)
+           in_files = [f for f in in_files_temp if tstring in f]
+        else:
+           in_files = in_files_temp
+
         in_files.sort()
 
         num_files = len(in_files)
@@ -362,7 +369,7 @@ def main(argv):
         n_all_var_names = len(all_var_names)
     
         # Create new summary ensemble file
-        if opts_dict['mach'] == 'gaea':
+        if opts_dict['model'] == 'gfdl':
            this_sumfile = opts_dict["sumfile"].strip('.nc') + '_' + tstring + '.nc'
         else:
            this_sumfile = opts_dict["sumfile"] 
@@ -401,7 +408,11 @@ def main(argv):
         if me.get_rank() == 0 and (verbose == True):
            print "Setting global attributes ....."
         setattr(nc_sumfile, 'creation_date',now)
-        setattr(nc_sumfile, 'title', 'CAM verification ensemble summary file')
+        if opts_dict['model'] == 'gfdl':
+           setattr(nc_sumfile, 'title', 'AM4 verification ensemble summary file')
+        else:
+           setattr(nc_sumfile, 'title', 'CAM verification ensemble summary file')
+         
         setattr(nc_sumfile, 'tag', opts_dict["tag"]) 
         setattr(nc_sumfile, 'compset', opts_dict["compset"]) 
         setattr(nc_sumfile, 'resolution', opts_dict["res"]) 
@@ -431,8 +442,10 @@ def main(argv):
                  v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'nlat', 'nlon'))
 
            v_RMSZ = nc_sumfile.create_variable("RMSZ", 'f', ('nvars', 'ens_size'))
-
-        v_gm = nc_sumfile.create_variable("global_mean", 'f', ('nvars', 'ens_size'))
+        if opts_dict['model'] == 'gfdl':
+           v_gm = nc_sumfile.create_variable("tile_mean", 'f', ('nvars', 'ens_size'))
+        else:
+           v_gm = nc_sumfile.create_variable("global_mean", 'f', ('nvars', 'ens_size'))   
         v_standardized_gm=nc_sumfile.create_variable("standardized_gm",'f',('nvars','ens_size'))
         v_loadings_gm = nc_sumfile.create_variable('loadings_gm','f',('nvars','nvars'))
         v_mu_gm = nc_sumfile.create_variable('mu_gm','f',('nvars',))
@@ -504,95 +517,116 @@ def main(argv):
            if num_2d > 0: 
               var2_list_loc=d2_var_names
 
-        # Calculate global means #
-        if me.get_rank() == 0 and (verbose == True):
+        # Calculate global means or tile means (GFDL) #
+        if me.get_rank() == 0 and verbose == True:
            print "Calculating global means ....."
-        if opts_dict['mach'] != 'gaea':
-           if not opts_dict['cumul']:
-              gm3d,gm2d,var_list = pyEnsLib.generate_global_mean_for_summary(o_files,var3_list_loc,var2_list_loc , is_SE, False,opts_dict)
+        if not opts_dict['cumul']:
+           gm3d,gm2d,var_list = pyEnsLib.generate_global_mean_for_summary(o_files,var3_list_loc,var2_list_loc, is_SE, False,opts_dict,tx)
         
-        if me.get_rank() == 0 and (verbose == True):
+        if me.get_rank() == 0 and verbose == True:
            print "Finish calculating global means ....."
 
         # Calculate RMSZ scores  
         if not opts_dict['gmonly'] | opts_dict['cumul']:
            if me.get_rank() == 0 and (verbose == True):
               print "Calculating RMSZ scores ....."
-           zscore3d,zscore2d,ens_avg3d,ens_stddev3d,ens_avg2d,ens_stddev2d,temp1,temp2=pyEnsLib.calc_rmsz(o_files,var3_list_loc,var2_list_loc,is_SE,opts_dict)    
+         
+           zscore3d,zscore2d,ens_avg3d,ens_stddev3d,ens_avg2d,ens_stddev2d,temp1,temp2=pyEnsLib.calc_rmsz(o_files,var3_list_loc,var2_list_loc,is_SE,opts_dict,tx)    
 
         # Calculate max norm ensemble
-#        if opts_dict['maxnorm']:
-#           if me.get_rank() == 0 and verbose == True:
-#              print "Calculating max norm of ensembles ....."
-#           pyEnsLib.calculate_maxnormens(opts_dict,var3_list_loc)
-#           pyEnsLib.calculate_maxnormens(opts_dict,var2_list_loc)
+        if opts_dict['maxnorm']:
+           if me.get_rank() == 0 and verbose == True:
+              print "Calculating max norm of ensembles ....."
+           pyEnsLib.calculate_maxnormens(opts_dict,var3_list_loc)
+           pyEnsLib.calculate_maxnormens(opts_dict,var2_list_loc)
 
-#        if opts_dict['mpi_enable'] & not opts_dict['popens']:
+        if opts_dict['mpi_enable'] and not opts_dict['popens']:
+           if not opts_dict['cumul']:
+              if num_3d > 0: 
+                 # Gather the 3d variable results from all processors to the master processor
+                 slice_index=get_stride_list(len(d3_var_names),me)
+                  # Gather global means 3d results
+                 gm3d=gather_npArray(gm3d,me,slice_index,(len(d3_var_names),len(o_files)))
+                 if not opts_dict['gmonly']:
+                    # Gather zscore3d results
+                    zscore3d=gather_npArray(zscore3d,me,slice_index,(len(d3_var_names),len(o_files)))
 
-#           if not opts_dict['cumul']:
-              # Gather the 3d variable results from all processors to the master processor
-#              slice_index=get_stride_list(len(d3_var_names),me)
-         
-              # Gather global means 3d results
-#              gm3d=gather_npArray(gm3d,me,slice_index,(len(d3_var_names),len(o_files)))
-#              if not opts_dict['gmonly']:
-                 # Gather zscore3d results
-#                  zscore3d=gather_npArray(zscore3d,me,slice_index,(len(d3_var_names),len(o_files)))
+                    # Gather ens_avg3d and ens_stddev3d results
+                    shape_tuple3d=get_shape(ens_avg3d.shape,len(d3_var_names),me.get_rank())
+                    ens_avg3d=gather_npArray(ens_avg3d,me,slice_index,shape_tuple3d) 
+                    ens_stddev3d=gather_npArray(ens_stddev3d,me,slice_index,shape_tuple3d) 
+              else:
+                 var_list.append('none')
+              if num_2d > 0: 
+                 # Gather 2d variable results from all processors to the master processor
+                 slice_index=get_stride_list(len(d2_var_names),me)
+                 # Gather global means 2d results
+                 gm2d=gather_npArray(gm2d,me,slice_index,(len(d2_var_names),len(o_files)))
 
-                 # Gather ens_avg3d and ens_stddev3d results
-#                 shape_tuple3d=get_shape(ens_avg3d.shape,len(d3_var_names),me.get_rank())
-#                 ens_avg3d=gather_npArray(ens_avg3d,me,slice_index,shape_tuple3d) 
-#                 ens_stddev3d=gather_npArray(ens_stddev3d,me,slice_index,shape_tuple3d) 
+                 if not opts_dict['gmonly']:
+                    # Gather zscore2d results
+                    zscore2d=gather_npArray(zscore2d,me,slice_index,(len(d2_var_names),len(o_files)))
+                    # Gather ens_avg3d and ens_stddev2d results
+                    shape_tuple2d=get_shape(ens_avg2d.shape,len(d2_var_names),me.get_rank())
+                    ens_avg2d=gather_npArray(ens_avg2d,me,slice_index,shape_tuple2d) 
+                    ens_stddev2d=gather_npArray(ens_stddev2d,me,slice_index,shape_tuple2d) 
+              else:
+                 var_list.append('none')
 
-           # Gather 2d variable results from all processors to the master processor
-#           slice_index=get_stride_list(len(d2_var_names),me)
-
-           # Gather global means 2d results
-#           gm2d=gather_npArray(gm2d,me,slice_index,(len(d2_var_names),len(o_files)))
-
-#           var_list=gather_list(var_list,me)
-
-#           if not opts_dict['gmonly']:
-              # Gather zscore2d results
-#              zscore2d=gather_npArray(zscore2d,me,slice_index,(len(d2_var_names),len(o_files)))
-
-              # Gather ens_avg3d and ens_stddev2d results
-#              shape_tuple2d=get_shape(ens_avg2d.shape,len(d2_var_names),me.get_rank())
-#              ens_avg2d=gather_npArray(ens_avg2d,me,slice_index,shape_tuple2d) 
-#              ens_stddev2d=gather_npArray(ens_stddev2d,me,slice_index,shape_tuple2d) 
-
-#        else:
-#           gmall=np.concatenate((temp1,temp2),axis=0)
-#           gmall=pyEnsLib.gather_npArray_pop(gmall,me,(me.get_size(),len(d3_var_names)+len(d2_var_names)))
+              var_list=gather_list(var_list,me)
+           else:
+              gmall=np.concatenate((temp1,temp2),axis=0)
+              gmall=pyEnsLib.gather_npArray_pop(gmall,me,(me.get_size(),len(d3_var_names)+len(d2_var_names)))
 
         # Assign to file:
-#        if me.get_rank() == 0 | opts_dict['popens'] :
-#           if not opts_dict['cumul']:
-#              gmall=np.concatenate((gm3d,gm2d),axis=0)
-#              if not opts_dict['gmonly']:
-#                 Zscoreall=np.concatenate((zscore3d,zscore2d),axis=0)
-#                 v_RMSZ[:,:]=Zscoreall[:,:]
-#              if not opts_dict['gmonly']:
-#                 if is_SE == True:
-#                    v_ens_avg3d[:,:,:]=ens_avg3d[:,:,:]
-#                    v_ens_stddev3d[:,:,:]=ens_stddev3d[:,:,:]
-#                    v_ens_avg2d[:,:]=ens_avg2d[:,:]
-#                    v_ens_stddev2d[:,:]=ens_stddev2d[:,:]
-#                 else:
-#                    v_ens_avg3d[:,:,:,:]=ens_avg3d[:,:,:,:]
-#                    v_ens_stddev3d[:,:,:,:]=ens_stddev3d[:,:,:,:]
-#                    v_ens_avg2d[:,:,:]=ens_avg2d[:,:,:]
-#                    v_ens_stddev2d[:,:,:]=ens_stddev2d[:,:,:]
-#           else:
-#              gmall_temp=np.transpose(gmall[:,:])
-#              gmall=gmall_temp
-#           mu_gm,sigma_gm,standardized_global_mean,loadings_gm,scores_gm=pyEnsLib.pre_PCA(gmall,all_var_names,var_list,me)
-#           v_gm[:,:]=gmall[:,:]
-#           v_standardized_gm[:,:]=standardized_global_mean[:,:]
-#           v_mu_gm[:]=mu_gm[:]
-#           v_sigma_gm[:]=sigma_gm[:].astype(np.float32)
-#           v_loadings_gm[:,:]=loadings_gm[:,:]
-#           v_sigma_scores_gm[:]=scores_gm[:]
+        if me.get_rank() == 0 | opts_dict['popens'] :
+           if not opts_dict['cumul']:
+              gmall=np.concatenate((gm3d,gm2d),axis=0)
+              if not opts_dict['gmonly']:
+                 if num_2d > 0 and num_3d > 0: 
+                    Zscoreall=np.concatenate((zscore3d,zscore2d),axis=0)
+                 elif num_2d > 0 and num_3d == 0: 
+                    Zscoreall=zscore2d
+                 elif num_3d > 0 and num_2d == 0: 
+                    Zscoreall=zscore3d
+
+                 v_RMSZ[:,:]=Zscoreall[:,:]
+                 print v_RMSZ[:]
+              if not opts_dict['gmonly']:
+                 if is_SE == True:
+                    v_ens_avg3d[:,:,:]=ens_avg3d[:,:,:]
+                    v_ens_stddev3d[:,:,:]=ens_stddev3d[:,:,:]
+                    v_ens_avg2d[:,:]=ens_avg2d[:,:]
+                    v_ens_stddev2d[:,:]=ens_stddev2d[:,:]
+                 else:
+                    if num_3d > 0:
+                       v_ens_avg3d[:,:,:,:]=ens_avg3d[:,:,:,:]
+                       v_ens_stddev3d[:,:,:,:]=ens_stddev3d[:,:,:,:]
+                    else:
+                       v_ens_avg3d=np.array([0,0,0,0])
+                       v_ens_avg3d.fill(np.nan)
+                       v_ens_stddev3d=np.array([0,0,0,0])
+                       v_ens_stddev3d.fill(np.nan)
+                    if num_2d > 0:
+                       v_ens_avg2d[:,:,:]=ens_avg2d[:,:,:]
+                       v_ens_stddev2d[:,:,:]=ens_stddev2d[:,:,:]
+                    else:
+                       v_ens_avg2d=np.array([0,0,0])
+                       v_ens_avg2d.fill(np.nan)
+                       v_ens_stddev2d=np.array([0,0,0])
+                       v_ens_stddev2d.fill(np.nan)
+
+           else:
+              gmall_temp=np.transpose(gmall[:,:])
+              gmall=gmall_temp
+
+           mu_gm,sigma_gm,standardized_global_mean,loadings_gm,scores_gm=pyEnsLib.pre_PCA(gmall,all_var_names,var_list,me)
+           v_gm[:,:]=gmall[:,:]
+           v_standardized_gm[:,:]=standardized_global_mean[:,:]
+           v_mu_gm[:]=mu_gm[:]
+           v_sigma_gm[:]=sigma_gm[:].astype(np.float32)
+           v_loadings_gm[:,:]=loadings_gm[:,:]
+           v_sigma_scores_gm[:]=scores_gm[:]
 
            if me.get_rank() == 0:
               print "All Done"
