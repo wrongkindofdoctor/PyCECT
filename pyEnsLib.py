@@ -28,12 +28,13 @@ def parse_header_file(filename):
 #
 # Create RMSZ zscores for ensemble file sets 
 #
-def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
+def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict,tile_number):
     n3d = len(var_name3d)
     n2d = len(var_name2d)
     threshold=1e-12
     popens = opts_dict['popens']
     tslice = opts_dict['tslice']
+    model = opts_dict['model']
     if 'cumul' in opts_dict:
        cumul=opts_dict['cumul']
     else:
@@ -109,8 +110,8 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict):
     gm3d=[]
     gm2d=[]
         
-    if cumul:
-       temp1,temp2,area_wgt,z_wgt=get_area_wgt(o_files,is_SE,input_dims,nlev,popens)
+    if cumul or opts_dict['model'] == 'gfdl':
+       temp1,temp2,area_wgt,z_wgt=get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number)
        if n3d > 0:
           gm3d = np.zeros((len(var_name3d)),dtype=np.float32)
        else:
@@ -538,7 +539,7 @@ def get_nlev(o_files,popens):
 #
 # Calculate area_wgt when processes cam se/cam fv/pop files
 #
-def get_area_wgt(o_files,is_SE,input_dims,nlev,popens): 
+def get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number): 
     z_wgt={}
     if (is_SE == True): 
         ncol = input_dims["ncol"]
@@ -556,24 +557,11 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens):
               nlat = get_lev(input_dims,'lat') 
               gw = o_files[0].variables["gw"]
            elif 'grid_xt'  and 'grid_yt' in input_dims:
-              inputdir=opts_dict['indir']
+              input_dir=opts_dict['indir']
               nlon = get_lev(input_dims,'grid_xt') 
               nlat = get_lev(input_dims,'grid_yt')
-              gs_tiles = []
-              #for tx in use_tiles:
-              #    for f in o_files:  
-    
-              
-              geoLat = cube_sphere_aggregate('grid_latt',gs_tiles)
-              geoLon = cube_sphere_aggregate('grid_lont',gs_tiles)
-              cellArea = cube_sphere_aggregate('area',gs_tiles)
-              #for varName in data_tiles[0].variables.keys():
-              #    if (len(data_tiles[0].variables[varName].shape) == 3):
-               #       var = cube_sphere_aggregate(varName,data_tiles)
-               #       var = np.ma.average(var,axis=0,weights=data_tiles[0].variables['average_DT'][:])
-              for reg in ['global','tropics','nh','sh']:
-                  result, _null = area_mean(var,cellArea,geoLat,geoLon,region=reg)
-      
+              geoLat,geoLon,cellArea = gmeantools.get_tile_coordinates(input_dir, tile_number)
+              gw =  cellArea            
         else:
            if 'nlon' in input_dims:
               nlon = get_lev(input_dims,'nlon') 
@@ -585,8 +573,13 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens):
            z_wgt = o_files[0].variables["dz"] 
 
         output2d = np.zeros((nlat, nlon))
-        area_wgt = np.zeros(nlat) #note gaues weights are length nlat
-        area_wgt[:] = gw[:]
+        if opts_dict['model'] == 'gfdl':
+           area_wgt = np.zeros((nlat,nlon),dtype=np.float32)
+           area_wgt = cellArea
+           print area_wgt.shape
+        else:
+           area_wgt = np.zeros(nlat) #note gaues weights are length nlat
+           area_wgt[:] = gw[:]
 
         if nlev > 0:
            output3d = np.zeros((nlev, nlat, nlon))     
@@ -598,7 +591,7 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens):
 #
 # Open input files,compute area_wgts, and then loop through all files to call calc_global_means_for_onefile
 #
-def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_gm,opts_dict):
+def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_gm,opts_dict,tile_number):
     tslice=opts_dict['tslice']
     popens=opts_dict['popens']
     #openfile - should have already been opened by Nio.open_file()
@@ -609,14 +602,15 @@ def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_g
     if n3d > 0:
        gm3d = np.zeros((n3d,len(o_files)),dtype=np.float32)       
     else:
-       gm3d = np.zeros((1,len(o_files)),dtype=np.float32)   
+       gm3d = np.zeros((1,len(o_files)),dtype=np.float32)
+       var_name3d = ['none'] 
 
     if n2d > 0: 
        gm2d = np.zeros((n2d,len(o_files)),dtype=np.float32)
     else:
        gm2d = np.zeros((1,len(o_files)),dtype=np.float32)  
-  
-    output3d,output2d,area_wgt,z_wgt=get_area_wgt(o_files,is_SE,input_dims,nlev,popens) 
+       var_name2d = ['none'] 
+    output3d,output2d,area_wgt,z_wgt=get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number) 
     #loop through the input file list to calculate global means
     #var_name3d=[]
     for fcount,fname in enumerate(o_files):
@@ -698,12 +692,12 @@ def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d
     n3d = len(var_name3d)
     n2d = len(var_name2d)
     #calculate global mean for each 3D variable 
-    if n3d > 0:
+    if n3d > 0 and 'none' not in var_name3d:
        gm3d = np.zeros((n3d),dtype=np.float32)
        for count, vname in enumerate(var_name3d):
            #if (verbose == True):
            #print "calculating GM for variable ", vname
-           if vname not in fname.variables:
+           if vname not in fname.variables and vname != 'none':
               print 'Error: the testing file does not have the variable '+vname+' that in the ensemble summary file'
               continue
            data = fname.variables[vname]
@@ -744,7 +738,7 @@ def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d
        for count, vname in enumerate(var_name2d):
            #if (verbose == True):
            #print "calculating GM for variable ", vname
-           if vname not in fname.variables:
+           if vname not in fname.variables and vname != 'none':
               print 'Error: the testing file does not have the variable '+vname+' that in the ensemble summary file'
               continue
            data = fname.variables[vname]
