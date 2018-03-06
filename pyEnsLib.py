@@ -29,8 +29,16 @@ def parse_header_file(filename):
 # Create RMSZ zscores for ensemble file sets 
 #
 def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict,tile_number):
-    n3d = len(var_name3d)
-    n2d = len(var_name2d)
+    if 'nan' in var_name3d:
+       n3d = 0
+    else:
+       n3d = len(var_name3d)
+
+    if 'nan' in var_name2d:
+       n2d = 0
+    else:
+       n2d = len(var_name2d)
+
     threshold=1e-12
     popens = opts_dict['popens']
     tslice = opts_dict['tslice']
@@ -321,7 +329,9 @@ def pre_PCA(gm_32,all_var_names,whole_list,me):
     standardized_global_mean=np.zeros(gm.shape,dtype=np.float64)
     scores_gm=np.zeros(gm.shape,dtype=np.float64)
 
+    whole_list.remove('nan')
     orig_len = len(whole_list)
+
     if orig_len > 0:
         if me.get_rank() == 0:
             print "\n"
@@ -333,45 +343,44 @@ def pre_PCA(gm_32,all_var_names,whole_list,me):
 
     #check for constants across ensemble
     for var in range(nvar):
-      for file in range(nfile):
-        if np.any(sigma_gm[var]== 0.0) and all_var_names[var] not in set(whole_list):
-           #keep track of zeros standard deviations
-           whole_list.append(all_var_names[var])
-
-    #print list       
+        for f in range(nfile):
+            if np.any(sigma_gm[var]== 0.0) and all_var_names[var] not in set(whole_list):
+               #keep track of zeros standard deviations
+               whole_list.append(all_var_names[var])
+               #print list       
     new_len = len(whole_list)
-    if (new_len > orig_len):
-        sub_list = whole_list[orig_len:]
-        if me.get_rank() == 0:
-              print "\n"
-              print "*************************************************************************************"
-              print "Warning: these ", new_len-orig_len, " variables are constant across ensemble members, please exclude them via the json file (--jsonfile): "
-              print "\n"
-              print ",".join(['"{0}"'.format(item) for item in sub_list])
-              print "*************************************************************************************"
-              print "\n"
+    if new_len > orig_len:
+       sub_list = whole_list[orig_len:]
+       if me.get_rank() == 0:
+          print "\n"
+          print "*************************************************************************************"
+          print "Warning: these ", new_len-orig_len, " variables are constant across ensemble members, please exclude them via the json file (--jsonfile): "
+          print "\n"
+          print ",".join(['"{0}"'.format(item) for item in sub_list])
+          print "*************************************************************************************"
+          print "\n"
 
     #exit if non-zero length whole_list      
     if new_len > 0:
-        if me.get_rank() == 0:
-            print "Exiting ..."
-        sys.exit(2)
+       if me.get_rank() == 0:
+          print "Exiting ..."
+       sys.exit(2)
         
     for var in range(nvar):
-      for file in range(nfile):
-        standardized_global_mean[var,file]=(gm[var,file]-mu_gm[var])/sigma_gm[var]
+        for f in range(nfile):
+            standardized_global_mean[var,f]=(gm[var,f]-mu_gm[var])/sigma_gm[var]
 
 
     standardized_rank=np.linalg.matrix_rank(standardized_global_mean)
     if me.get_rank() == 0:
-        print "standardized_global_mean rank = ",standardized_rank 
-        print "checking for dependent vars using QR..."
+       print "standardized_global_mean rank = ",standardized_rank 
+       print "checking for dependent vars using QR..."
     #dep_var_list=get_failure_index(standardized_global_mean)
     dep_var_list = get_dependent_vars_index(standardized_global_mean, standardized_rank)
     num_dep = len(dep_var_list)
     orig_len = len(whole_list)
     for i in dep_var_list:
-       whole_list.append(all_var_names[i])
+        whole_list.append(all_var_names[i])
     if num_dep > 0:
         sub_list = whole_list[orig_len:]
         if me.get_rank() == 0:
@@ -499,8 +508,10 @@ def area_avg(data_orig, weight, is_SE):
     else: #FV
         #a = wgt_areaave(data, weight, 1.0, 1)
         #weights are for lat 
-        a_lat = np.average(data,axis=0, weights=weight)
+        use = ~np.isnan(data)
+        a_lat = np.average(data[use],axis=0, weights=weight[use])
         a = np.average(a_lat)
+       
     return a
 
 
@@ -561,7 +572,9 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number):
               nlon = get_lev(input_dims,'grid_xt') 
               nlat = get_lev(input_dims,'grid_yt')
               geoLat,geoLon,cellArea = gmeantools.get_tile_coordinates(input_dir, tile_number)
-              gw =  cellArea            
+              # gw = cellArea
+              gw = np.sqrt(np.cos(geoLat*np.pi/180))
+               
         else:
            if 'nlon' in input_dims:
               nlon = get_lev(input_dims,'nlon') 
@@ -575,8 +588,8 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number):
         output2d = np.zeros((nlat, nlon))
         if opts_dict['model'] == 'gfdl':
            area_wgt = np.zeros((nlat,nlon),dtype=np.float32)
-           area_wgt = cellArea
-           print area_wgt.shape
+           area_wgt = gw
+           #print area_wgt.shape
         else:
            area_wgt = np.zeros(nlat) #note gaues weights are length nlat
            area_wgt[:] = gw[:]
@@ -595,24 +608,35 @@ def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_g
     tslice=opts_dict['tslice']
     popens=opts_dict['popens']
     #openfile - should have already been opened by Nio.open_file()
-    n3d = len(var_name3d)
-    n2d = len(var_name2d)
+    if 'nan' in var_name3d:
+       n3d = 0
+    else:
+       n3d = len(var_name3d)
+
+    if 'nan' in var_name2d:
+       n2d = 0
+    else:
+       n2d = len(var_name2d)
+
+    print 'n2d = ', n2d
+    print 'n3d = ', n3d
+
     tot = n3d + n2d
     input_dims,nlev=get_nlev(o_files,popens)      
     if n3d > 0:
        gm3d = np.zeros((n3d,len(o_files)),dtype=np.float32)       
-    else:
+    else: # create dummy array of zeros
        gm3d = np.zeros((1,len(o_files)),dtype=np.float32)
-       var_name3d = ['none'] 
 
     if n2d > 0: 
        gm2d = np.zeros((n2d,len(o_files)),dtype=np.float32)
-    else:
+    else: # create dummy array of zeros
        gm2d = np.zeros((1,len(o_files)),dtype=np.float32)  
-       var_name2d = ['none'] 
+
     output3d,output2d,area_wgt,z_wgt=get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number) 
+    #print 'area weight is ', area_wgt
     #loop through the input file list to calculate global means
-    #var_name3d=[]
+
     for fcount,fname in enumerate(o_files):
         if pepsi_gm:
            # Generate global mean for pepsi challenge data timeseries daily files, they all are 2d variables
@@ -647,8 +671,16 @@ def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_g
 # Calculate global means for one OCN input file
 #
 def calc_global_mean_for_onefile_pop(fname, area_wgt,z_wgt,var_name3d, var_name2d,output3d,output2d, tslice, is_SE, nlev,opts_dict):
-    n3d = len(var_name3d)
-    n2d = len(var_name2d)
+    if 'nan' in var_name3d:
+       n3d = 0
+    else:
+       n3d = len(var_name3d)
+
+    if 'nan' in var_name2d:
+       n2d = 0
+    else:
+       n2d = len(var_name2d)
+
     if n3d > 0:
        gm3d = np.zeros((n3d),dtype=np.float32)
        #calculate global mean for each 3D variable 
@@ -681,7 +713,7 @@ def calc_global_mean_for_onefile_pop(fname, area_wgt,z_wgt,var_name3d, var_name2
 
     return gm3d, gm2d        
 #
-# Calculate global means for one CAM input file
+# Calculate global means for one CAM or AM4 input file
 #
 def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d,output2d, tslice, is_SE, nlev,opts_dict):
     
@@ -689,15 +721,22 @@ def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d
        cumul = opts_dict['cumul']
     else:
        cumul = False 
-    n3d = len(var_name3d)
-    n2d = len(var_name2d)
+    if 'nan' in var_name3d:
+       n3d = 0
+    else:
+       n3d = len(var_name3d)
+    if 'nan' in var_name2d:
+       n2d = 0
+    else:
+       n2d = len(var_name2d)
+
     #calculate global mean for each 3D variable 
-    if n3d > 0 and 'none' not in var_name3d:
+    if n3d > 0:
        gm3d = np.zeros((n3d),dtype=np.float32)
        for count, vname in enumerate(var_name3d):
            #if (verbose == True):
            #print "calculating GM for variable ", vname
-           if vname not in fname.variables and vname != 'none':
+           if vname not in fname.variables:
               print 'Error: the testing file does not have the variable '+vname+' that in the ensemble summary file'
               continue
            data = fname.variables[vname]
@@ -728,20 +767,20 @@ def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d
                      gm_lev[k] = area_avg(output3d[k,:,:], area_wgt, is_SE)
               #note: averaging over levels should probably be pressure-weighted(TO DO)        
            gm3d[count] = np.mean(gm_lev)         
-    else:
-        gm3d = np.zeros(1,dtype=np.float32)
+    else: # create dummy array
+       gm3d = np.zeros(1,dtype=np.float32)
         
     #calculate global mean for each 2D variable
     if n2d > 0:
        gm2d = np.zeros((n2d),dtype=np.float32)
-
        for count, vname in enumerate(var_name2d):
            #if (verbose == True):
            #print "calculating GM for variable ", vname
-           if vname not in fname.variables and vname != 'none':
+           if vname not in fname.variables and vname != 'nan':
               print 'Error: the testing file does not have the variable '+vname+' that in the ensemble summary file'
               continue
            data = fname.variables[vname]
+           #print 'data shape is ', data.shape
            if is_SE == True:
               if not cumul:
                  output2d[:] = data[tslice,:] 
@@ -751,11 +790,10 @@ def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d
                  output2d[:,:] = data[tslice,:,:] 
                  gm2d_mean = area_avg(output2d[:,:], area_wgt, is_SE)
            gm2d[count]=gm2d_mean
-       else:
-          gm2d = np.zeros(1,dtype=np.float32)
+    else: # create dummy array
+       gm2d = np.zeros(1,dtype=np.float32)
 
     return gm3d,gm2d        
-
 #
 # Read variable values from ensemble summary file
 #
