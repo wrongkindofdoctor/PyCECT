@@ -25,7 +25,7 @@ def main(argv):
     # Defaults
     opts_dict['tag'] = ''
     opts_dict['compset'] = ''
-    opts_dict['esize'] = 5
+    opts_dict['esize'] = 50
     opts_dict['tslice'] = 0
     opts_dict['res'] = ''
     opts_dict['sumfile'] = 'ens.summary.nc'
@@ -301,7 +301,7 @@ def main(argv):
                   del vars_dict[k]
 
         num_vars = len(vars_dict)
-        print num_vars
+        
         #if me.get_rank() == 0:
             #for k,v in vars_dict.iteritems():
                  #print 'vars_dict',k,vars_dict[k].typecode()
@@ -316,13 +316,13 @@ def main(argv):
         # Which are 2d, which are 3d and max str_size 
         for k,v in vars_dict.iteritems():  
             var = k
-            print var
+             #print var
             vd = v.dimensions # all the variable's dimensions (names)
             vr = v.rank # num dimension
             vs = v.shape # dim values
-            print 'vr ', vr
-            print 'vd ', vd
-            print 'vs ', vs
+            #print 'vr ', vr
+            #print 'vd ', vd
+            #print 'vs ', vs
             is_2d = False
             is_3d = False
             if is_SE == True: # (time, lev, ncol) or (time, ncol)
@@ -346,7 +346,13 @@ def main(argv):
             elif is_2d == True:    
                str_size = max(str_size, len(k))
                d2_var_names.append(k)
-      
+
+        if num_3d == 0:
+           d3_var_names.append('nan')
+            
+        if num_2d == 0:
+           d2_var_names.append('nan')
+
         if me.get_rank() == 0 and verbose == True:
            print 'Number of variables found:  ', num_3d+num_2d
            print '3D variables: '+str(num_3d)+', 2D variables: '+str(num_2d)
@@ -366,11 +372,15 @@ def main(argv):
         # All vars is 3d vars first (sorted), the 2d vars
         all_var_names = list(d3_var_names)
         all_var_names += d2_var_names
-        n_all_var_names = len(all_var_names)
-    
+        var_without_nan = all_var_names
+        var_without_nan.remove('nan')
+        n_all_var_names = len(var_without_nan)
+        #print ' length of variable names is ', n_all_var_names
+        #print all_var_names
+        
         # Create new summary ensemble file
         if opts_dict['model'] == 'gfdl':
-           this_sumfile = opts_dict["sumfile"].strip('.nc') + '_' + tstring + '.nc'
+           this_sumfile = opts_dict["sumfile"].strip('.nc') + '_' + outputfreq + '_' + tstring + '.nc'
         else:
            this_sumfile = opts_dict["sumfile"] 
         print 'summary file is ' + this_sumfile
@@ -396,7 +406,7 @@ def main(argv):
            nc_sumfile.create_dimension('nlon', nlon)
         if num_3d > 0:
            nc_sumfile.create_dimension('nlev', nlev)
-           nc_sumfile.create_dimension('nvars3d', num_3d)
+        nc_sumfile.create_dimension('nvars3d', num_3d)
         if num_2d > 0:
            nc_sumfile.create_dimension('nvars2d', num_2d)
         nc_sumfile.create_dimension('ens_size', esize)
@@ -405,7 +415,7 @@ def main(argv):
 
         # Set global attributes
         now = time.strftime("%c")
-        if me.get_rank() == 0 and (verbose == True):
+        if me.get_rank() == 0 and verbose == True:
            print "Setting global attributes ....."
         setattr(nc_sumfile, 'creation_date',now)
         if opts_dict['model'] == 'gfdl':
@@ -488,6 +498,7 @@ def main(argv):
             eq_d2_var_names.append(tt)
 
         v_vars[:] = eq_all_var_names[:]
+  
         if num_3d > 0:
            v_var3d[:] = eq_d3_var_names[:]
         if num_2d > 0:
@@ -507,15 +518,11 @@ def main(argv):
         var2_list_loc = []
         if not opts_dict['cumul']:
            # Partition the var list
-           if num_3d > 0: 
-              var3_list_loc=me.partition(d3_var_names,func=EqualStride(),involved=True)
-           if num_2d > 0:
-              var2_list_loc=me.partition(d2_var_names,func=EqualStride(),involved=True)
+           var3_list_loc=me.partition(d3_var_names,func=EqualStride(),involved=True)
+           var2_list_loc=me.partition(d2_var_names,func=EqualStride(),involved=True)
         else:
-           if num_3d > 0: 
-              var3_list_loc=d3_var_names
-           if num_2d > 0: 
-              var2_list_loc=d2_var_names
+           var3_list_loc=d3_var_names
+           var2_list_loc=d2_var_names
 
         # Calculate global means or tile means (GFDL) #
         if me.get_rank() == 0 and verbose == True:
@@ -555,8 +562,7 @@ def main(argv):
                     shape_tuple3d=get_shape(ens_avg3d.shape,len(d3_var_names),me.get_rank())
                     ens_avg3d=gather_npArray(ens_avg3d,me,slice_index,shape_tuple3d) 
                     ens_stddev3d=gather_npArray(ens_stddev3d,me,slice_index,shape_tuple3d) 
-              else:
-                 var_list.append('none')
+         
               if num_2d > 0: 
                  # Gather 2d variable results from all processors to the master processor
                  slice_index=get_stride_list(len(d2_var_names),me)
@@ -569,11 +575,9 @@ def main(argv):
                     # Gather ens_avg3d and ens_stddev2d results
                     shape_tuple2d=get_shape(ens_avg2d.shape,len(d2_var_names),me.get_rank())
                     ens_avg2d=gather_npArray(ens_avg2d,me,slice_index,shape_tuple2d) 
-                    ens_stddev2d=gather_npArray(ens_stddev2d,me,slice_index,shape_tuple2d) 
-              else:
-                 var_list.append('none')
-
+            
               var_list=gather_list(var_list,me)
+            
            else:
               gmall=np.concatenate((temp1,temp2),axis=0)
               gmall=pyEnsLib.gather_npArray_pop(gmall,me,(me.get_size(),len(d3_var_names)+len(d2_var_names)))
@@ -581,7 +585,13 @@ def main(argv):
         # Assign to file:
         if me.get_rank() == 0 | opts_dict['popens'] :
            if not opts_dict['cumul']:
-              gmall=np.concatenate((gm3d,gm2d),axis=0)
+              if num_3d > 0 and num_2d > 0:
+                 gmall=np.concatenate((gm3d,gm2d),axis=0)
+              elif num_3d == 0 and num_2d > 0:
+                 gmall = gm2d
+              elif num_3d > 0 and num_2d == 0:
+                 gmall = gm3d
+                 
               if not opts_dict['gmonly']:
                  if num_2d > 0 and num_3d > 0: 
                     Zscoreall=np.concatenate((zscore3d,zscore2d),axis=0)
@@ -591,7 +601,7 @@ def main(argv):
                     Zscoreall=zscore3d
 
                  v_RMSZ[:,:]=Zscoreall[:,:]
-                 print v_RMSZ[:]
+      
               if not opts_dict['gmonly']:
                  if is_SE == True:
                     v_ens_avg3d[:,:,:]=ens_avg3d[:,:,:]
@@ -619,7 +629,7 @@ def main(argv):
            else:
               gmall_temp=np.transpose(gmall[:,:])
               gmall=gmall_temp
-
+ 
            mu_gm,sigma_gm,standardized_global_mean,loadings_gm,scores_gm=pyEnsLib.pre_PCA(gmall,all_var_names,var_list,me)
            v_gm[:,:]=gmall[:,:]
            v_standardized_gm[:,:]=standardized_global_mean[:,:]
