@@ -42,7 +42,7 @@ def main(argv):
     opts_dict['startMon'] = 1
     opts_dict['endMon'] = 1
     opts_dict['fIndex'] = 5
-    opts_dict['outputfreq'] = 1
+    opts_dict['outputfreq'] = 0
     opts_dict['histfolder'] = 1
     opts_dict['use_tiles'] = 1
     opts_dict['mach'] = 'gaea'
@@ -75,8 +75,12 @@ def main(argv):
        outputfreq_dict[8] = ['8xdaily']
                     
        outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
-       use_tiles = opts_dict['usetiles']
-       tiles = [int(i) for i in use_tiles.split(',')]
+       use_tiles = [opts_dict['usetiles']]
+      
+       if len(use_tiles) > 1:
+          tiles = [int(i) for i in use_tiles.split(',')]
+       else:
+          tiles = [int(use_tiles[0])]
        #print tiles   
         
     else:
@@ -361,6 +365,8 @@ def main(argv):
         d2_var_names.sort()       
         d3_var_names.sort()
 
+        print '3d vars ',d3_var_names
+
         if esize<num_2d+num_3d:
            if me.get_rank()==0:
               print "************************************************************************************************************************************"
@@ -372,9 +378,12 @@ def main(argv):
         # All vars is 3d vars first (sorted), the 2d vars
         all_var_names = list(d3_var_names)
         all_var_names += d2_var_names
-        var_without_nan = all_var_names
-        var_without_nan.remove('nan')
-        n_all_var_names = len(var_without_nan)
+        if 'nan' in all_var_names:
+           var_without_nan = all_var_names
+           var_without_nan.remove('nan')
+           n_all_var_names = len(var_without_nan)
+        else:
+            n_all_var_names = len(all_var_names)
         #print ' length of variable names is ', n_all_var_names
         #print all_var_names
         
@@ -508,7 +517,7 @@ def main(argv):
         if me.get_rank() == 0 and (verbose == True):
            print "Assigning time invariant metadata ....."
         if num_3d > 0:
-           lev_data = vars_dict[levkey]
+           lev_data = input_dims[levkey]
            v_lev = lev_data
 
         # Form ensembles, each missing one member; compute RMSZs and global means
