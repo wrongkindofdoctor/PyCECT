@@ -44,7 +44,7 @@ def main(argv):
     opts_dict['fIndex'] = 5
     opts_dict['outputfreq'] = 0
     opts_dict['histfolder'] = 1
-    opts_dict['use_tiles'] = 1
+    opts_dict['usetiles'] = 1
     opts_dict['mach'] = 'gaea'
     opts_dict['model'] = 'gfdl'
 
