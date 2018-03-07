@@ -15,7 +15,6 @@ import itertools
 from itertools import islice
 from EET import exhaustive_test
 from scipy import linalg as sla
-import gmeantools
 #
 # Parse header file of a netcdf to get the variable 3d/2d/1d list
 #
@@ -47,6 +46,12 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict,tile_number):
        cumul=opts_dict['cumul']
     else:
        cumul=False
+
+    if opts_dict['landmask'] == True:
+       do_land = True
+    else:
+       do_land = False
+
     input_dims = o_files[0].dimensions
     if popens:
        nbin = opts_dict['nbin']
@@ -95,6 +100,7 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict,tile_number):
           output3d = np.zeros((len(o_files),nlev,nlat,nlon),dtype=np.float32)
           ens_avg3d=np.zeros((len(var_name3d),nlev,nlat,nlon),dtype=np.float32)
           ens_stddev3d=np.zeros((len(var_name3d),nlev,nlat,nlon),dtype=np.float32)
+  
        else: 
           Zscore3d = np.zeros((1,len(o_files)),dtype=np.float32) 
           output3d = np.zeros((len(o_files),nlat,nlon),dtype=np.float32)
@@ -128,6 +134,8 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict,tile_number):
           gm2d = np.zeros((len(var_name2d)),dtype=np.float32)
        else: 
           gm2d = np.zeros(1,dtype=np.float32)
+
+  
 
     if n3d > 0:
        for vcount,vname in enumerate(var_name3d):
@@ -197,7 +205,7 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict,tile_number):
               ens_avg2d[vcount]=np.average(output2d,axis=0).astype(np.float32)
               ens_stddev2d[vcount]=np.std(output2d,axis=0,dtype=np.float64).astype(np.float32)
            if cumul:
-              temp3,gm2d[vcount]=calc_global_mean_for_onefile(this_file,area_wgt,[],[vname],temp1,ens_avg2d[vcount],tslice,is_SE,nlev,opts_dict)
+              temp3,gm2d[vcount]=calc_global_mean_for_onefile(this_file,area_wgt,[],[vname],temp1,ens_avg2d[vcount],tslice,is_SE,nlev,opts_dict,tile_number)
 
            if not cumul:
               #Generate avg, stddev and zscore for 2d variable
@@ -571,9 +579,8 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number):
            elif 'grid_xt'  and 'grid_yt' in input_dims:
               input_dir=opts_dict['indir']
               nlon = get_lev(input_dims,'grid_xt') 
-              nlat = get_lev(input_dims,'grid_yt')
-              geoLat,geoLon,cellArea = gmeantools.get_tile_coordinates(input_dir, tile_number)
-              # gw = cellArea
+              nlat = get_lev(input_dims,'grid_yt')             
+              geoLat,geoLon = get_tile_coordinates(input_dir, tile_number)
               gw = np.sqrt(np.cos(geoLat*np.pi/180))
                
         else:
@@ -623,7 +630,8 @@ def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_g
     print 'n3d = ', n3d
 
     tot = n3d + n2d
-    input_dims,nlev=get_nlev(o_files,popens)      
+    input_dims,nlev=get_nlev(o_files,popens)   
+
     if n3d > 0:
        gm3d = np.zeros((n3d,len(o_files)),dtype=np.float32)       
     else: # create dummy array of zeros
@@ -633,6 +641,19 @@ def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_g
        gm2d = np.zeros((n2d,len(o_files)),dtype=np.float32)
     else: # create dummy array of zeros
        gm2d = np.zeros((1,len(o_files)),dtype=np.float32)  
+
+    if opts_dict['landmask'] == True:
+       do_land = True
+    else:
+       do_land = False
+     
+    if do_land:
+       if n3d > 0:
+          gm3d_land = np.zeros((n3d,len(o_files)),dtype=np.float32)
+       if n2d > 0:
+          gm2d_land = np.zeros((n2d,len(o_files)),dtype=np.float32)
+       input_dir = opts_dict['indir']
+       landmask = get_landmask(input_dir,tile_number)
 
     output3d,output2d,area_wgt,z_wgt=get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number) 
     #print 'area weight is ', area_wgt
@@ -649,13 +670,20 @@ def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_g
                if k == 'time':
                   ntslice=v[:]
            for i in np.nditer(ntslice):
-               temp1,temp2=calc_global_mean_for_onefile(fname,area_wgt,var_name3d,var_name2d,output3d,output2d,int(i),is_SE,nlev,opts_dict)
+               temp1,temp2=calc_global_mean_for_onefile(fname,area_wgt,var_name3d,var_name2d,output3d,output2d,int(i),is_SE,nlev,opts_dict,tile_number)
                fout.write(str(temp2[0])+'\n')
         elif popens:
              gm3d[:,fcount],gm2d[:,fcount]=calc_global_mean_for_onefile_pop(fname,area_wgt,z_wgt,var_name3d,var_name2d,output3d,output2d,tslice,is_SE,nlev,opts_dict)
 
         else:
-           gm3d[:,fcount],gm2d[:,fcount]=calc_global_mean_for_onefile(fname,area_wgt,var_name3d,var_name2d,output3d,output2d,tslice,is_SE,nlev,opts_dict)
+           if do_land and n3d > 0 and n2d > 0:   
+              gm3d[:,fcount],gm2d[:,fcount],gm3d_land[:,fcount],gm2d_land[:,fcount] = calc_global_mean_for_onefile(fname,area_wgt,var_name3d,var_name2d,output3d,output2d,tslice,is_SE,nlev,opts_dict,tile_number)
+           elif do_land and n3d > 0 and n2d == 0:   
+              gm3d[:,fcount],gm2d[:,fcount],gm3d_land[:,fcount] = calc_global_mean_for_onefile(fname,area_wgt,var_name3d,var_name2d,output3d,output2d,tslice,is_SE,nlev,opts_dict,tile_number)
+           elif do_land and n3d == 0 and n2d > 0:   
+              gm3d[:,fcount],gm2d[:,fcount],gm2d_land[:,fcount] = calc_global_mean_for_onefile(fname,area_wgt,var_name3d,var_name2d,output3d,output2d,tslice,is_SE,nlev,opts_dict,tile_number)
+           elif not do_land:
+              gm3d[:,fcount],gm2d[:,fcount] = calc_global_mean_for_onefile(fname,area_wgt,var_name3d,var_name2d,output3d,output2d,tslice,is_SE,nlev,opts_dict,tile_number)
 
 
   
@@ -666,7 +694,15 @@ def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_g
     for i in range(len(var_name2d)):
         if not np.any(np.abs(gm2d[i]) >= 1.0e-15): 
            var_list.append(var_name2d[i])
-    return gm3d,gm2d,var_list
+
+    if do_land and n3d > 0 and n2d > 0: 
+       return gm3d,gm2d,gm3d_land,gm2d_land,var_list  
+    elif do_land and n3d > 0 and n2d == 0:  
+       return gm3d,gm2d,gm3d_land,var_list
+    elif do_land and n3d == 0 and n2d > 0:  
+       return gm3d,gm2d,gm2d_land,var_list
+    elif not do_land:
+       return gm3d,gm2d,var_list
 
 #
 # Calculate global means for one OCN input file
@@ -716,7 +752,7 @@ def calc_global_mean_for_onefile_pop(fname, area_wgt,z_wgt,var_name3d, var_name2
 #
 # Calculate global means for one CAM or AM4 input file
 #
-def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d,output2d, tslice, is_SE, nlev,opts_dict):
+def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d,output2d, tslice, is_SE, nlev,opts_dict,tile_number):
     
     if 'cumul' in opts_dict:
        cumul = opts_dict['cumul']
@@ -730,6 +766,21 @@ def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d
        n2d = 0
     else:
        n2d = len(var_name2d)
+    
+    if opts_dict['landmask'] == True:
+       do_land = True
+    else:
+       do_land = False
+     
+    if do_land:
+       if n3d > 0:
+          gm3d_land = np.zeros((n3d),dtype=np.float32)
+       if n2d > 0:
+          gm2d_land = np.zeros((n2d),dtype=np.float32)
+       input_dir = opts_dict['indir']
+       landmask = get_landmask(input_dir,tile_number)
+       land_wgt = np.multiply(area_wgt,landmask)
+       #print landmask[1:30]
 
     #calculate global mean for each 3D variable 
     if n3d > 0:
@@ -762,18 +813,34 @@ def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d
                  for k in range(temp):
                      gm_lev[k] = area_avg(data[tslice,k,:,:], area_wgt, is_SE)
                      #output3d[:,:,:] = data[tslice,:,:,:] 
+                 if do_land:
+                    gm_lev_land = np.zeros(temp)
+                    for k in range(temp):
+                        temp2 = data[tslice,k,:,:]
+                        dat = np.multiply(temp2,landmask)         
+                        gm_lev_land[k] = area_avg(dat, land_wgt, is_SE)
               else:
                  gm_lev=np.zeros(nlev)
                  for k in range(nlev):
                      gm_lev[k] = area_avg(output3d[k,:,:], area_wgt, is_SE)
-              #note: averaging over levels should probably be pressure-weighted(TO DO)        
-           gm3d[count] = np.mean(gm_lev)         
+                 if do_land:
+                    gm_lev_land = np.zeros(nlev)
+                    for k in range(nlev):
+                        temp2 = output3d[k,:,:]
+                        dat = np.multiply(temp2,landmask)         
+                        gm_lev_land[k] = area_avg(dat, land_wgt, is_SE)
+           #note: averaging over levels should probably be pressure-weighted(TO DO)        
+           gm3d[count] = np.mean(gm_lev) 
+           if do_land: 
+              gm3d_land[count] = np.mean(gm_lev_land)       
     else: # create dummy array
        gm3d = np.zeros(1,dtype=np.float32)
         
     #calculate global mean for each 2D variable
     if n2d > 0:
        gm2d = np.zeros((n2d),dtype=np.float32)
+       if do_land:
+          gm2d_land = np.zeros((n2d),dtype=np.float32)
        for count, vname in enumerate(var_name2d):
            #if (verbose == True):
            #print "calculating GM for variable ", vname
@@ -790,11 +857,25 @@ def calc_global_mean_for_onefile(fname, area_wgt,var_name3d, var_name2d,output3d
               if not cumul:
                  output2d[:,:] = data[tslice,:,:] 
                  gm2d_mean = area_avg(output2d[:,:], area_wgt, is_SE)
+                 if do_land:         
+                    dat = np.multiply(output2d[:,:],landmask)         
+                    gm2d_mean_land = area_avg(dat, land_wgt, is_SE)
+
            gm2d[count]=gm2d_mean
+           if do_land: 
+              gm2d_land[count] = gm2d_mean_land  
+              
     else: # create dummy array
        gm2d = np.zeros(1,dtype=np.float32)
-
-    return gm3d,gm2d        
+    
+    if do_land and n3d > 0 and n2d >0:
+       return gm3d,gm2d,gm3d_land,gm2d_land     
+    elif do_land and n3d > 0 and n2d == 0:  
+       return gm3d,gm2d,gm3d_land 
+    elif do_land and n3d == 0 and n2d > 0:  
+       return gm3d,gm2d,gm2d_land 
+    else:
+       return gm3d,gm2d        
 #
 # Read variable values from ensemble summary file
 #
@@ -815,10 +896,17 @@ def read_ensemble_summary(ens_file):
   ens_rmsz={}
   ens_gm={}
   std_gm={}  
-  #mu_gm={}
-  #sigma_gm={}
-  #loadings_gm={}
-  #sigma_scores_gm={}
+  mu_gm={}
+  sigma_gm={}
+  loadings_gm={}
+  sigma_scores_gm={}
+  # land average quantities
+  land_mean ={}
+  std_land_mean={}  
+  mu_land_mean={}
+  sigma_land_mean={}
+  loadings_land_mean={}
+  sigma_scores_land_mean={}
 
   # Retrieve the variable list from ensemble file
   for k,v in fens.variables.iteritems():
@@ -870,11 +958,32 @@ def read_ensemble_summary(ens_file):
                temp_name=ens_var_name[m]
                ens_gm[temp_name]=i
                m=m+1
+     # gm quantities are averaged over tiles for *tileN.nc files
+      elif k == 'tile_mean':
+           m=0
+           for i in v[0:len(v)]:
+               temp_name=ens_var_name[m]
+               ens_gm[temp_name]=i
+               m=m+1
+
+      elif k == 'land_mean':
+           m=0
+           for i in v[0:len(v)]:
+               temp_name=ens_var_name[m]
+               land_mean[temp_name]=i
+               m=m+1
+
       elif k == 'standardized_gm':
            m=0
            for i in v[0:len(v)]:
                temp_name=ens_var_name[m]
                std_gm[temp_name]=i
+               m=m+1 
+      elif k == 'standardized_land_mean':
+           m=0
+           for i in v[0:len(v)]:
+               temp_name=ens_var_name[m]
+               std_land_mean[temp_name]=i
                m=m+1 
       elif k == 'mu_gm':
            mu_gm=np.zeros((num_var3d+num_var2d),dtype=np.float32)
@@ -888,8 +997,21 @@ def read_ensemble_summary(ens_file):
       elif k == 'sigma_scores_gm':
            sigma_scores_gm=np.zeros((num_var3d+num_var2d),dtype=np.float32)
            sigma_scores_gm[:]=v[:]
+      elif k == 'mu_land_mean':
+           mu_land_mean=np.zeros((num_var3d+num_var2d),dtype=np.float32)
+           mu_land_mean[:]=v[:]
+      elif k == 'sigma_land_mean':
+           sigma_land_mean=np.zeros((num_var3d+num_var2d),dtype=np.float32)
+           sigma_land_mean[:]=v[:]
+      elif k == 'loadings_land_mean':
+           loadings_land_mean=np.zeros((num_var3d+num_var2d,num_var3d+num_var2d),dtype=np.float32)
+           loadings_land_mean[:,:]=v[:,:]
+      elif k == 'sigma_scores_land_mean':
+           sigma_scores_land_mean=np.zeros((num_var3d+num_var2d),dtype=np.float32)
+           sigma_scores_land_mean[:]=v[:]
   
-  return ens_var_name,ens_avg,ens_stddev,ens_rmsz,ens_gm,num_var3d,mu_gm,sigma_gm,loadings_gm,sigma_scores_gm,is_SE,std_gm
+  return ens_var_name,ens_avg,ens_stddev,ens_rmsz,ens_gm,num_var3d,mu_gm,sigma_gm,loadings_gm,sigma_scores_gm,is_SE,std_gm,
+  tile_mean, land_mean,std_land_mean, mu_land_mean,sigma_land_mean,loadings_land_mean,sigma_scores_land_mean
 
 
 #
@@ -1296,6 +1418,7 @@ def GFDL_usage():
     print '   --outputfreq <num>      : model output frequency: 0=monthly,1 =annual mean, 4=4xdaily,8=8xdaily (default = 0)'
     print '   --usetiles <num>        : which Cubed sphere tile(s) to use; default = 1'
     print '   --histfolder    <name>  : index for history folder name; dedault is 1, which = 1x1m0d (1 segment of 1 month of output)'
+    print '   --landmask              : option to include stats for land grid cells only; default is False'
     print '  ----------------------------'
     print '   Args for AM-CECT and UF-AM-ECT:'
     print '  ----------------------------'
@@ -1848,5 +1971,21 @@ def plot_variable(in_files_list,comp_file,opts_dict,var_list,run_index,me):
 def chunk(it,size):
     it = iter(it)
     return iter(lambda:tuple(islice(it,size)),())
+# GFDL functions
+def get_tile_coordinates(input_dir, tileNumber):
+    filein = '19790101.grid_spec.tile' +str(tileNumber)+'.nc'	
+    f = Nio.open_file(input_dir + '/' + filein,"r")
+    geoLat = f.variables['grid_latt'][:]
+    geoLon = f.variables['grid_lont'][:]
+    #cellArea = f.variables['area'][:] 
+    f.close()
+    return geoLat,geoLon
+
+def get_landmask(input_dir, tileNumber):
+    filein = '19790101.grid_spec.tile' +str(tileNumber)+'.nc'	
+    f = Nio.open_file(input_dir + '/' + filein,"r")
+    landMask = f.variables['land_mask'][:]
+    f.close()
+    return landMask
 
 
