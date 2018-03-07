@@ -165,7 +165,7 @@ def calc_rmsz(o_files,var_name3d,var_name2d,is_SE,opts_dict,tile_number):
                  count3d,ret_val=calc_Z(output3d[fcount].astype(np.float64),avg3d.astype(np.float64),stddev3d.astype(np.float64),count3d,flag3d)
                  Zscore=np.sum(np.square(ret_val))
 
-                 if count3d < npts3:
+                 if count3d < npts3d:
                     Zscore3d[vcount,fcount]=np.sqrt(Zscore/(npts3d-count3d))
                  else:
                     print "WARNING: no variance in "+vname
@@ -328,8 +328,9 @@ def pre_PCA(gm_32,all_var_names,whole_list,me):
     sigma_gm=np.std(gm,axis=1)
     standardized_global_mean=np.zeros(gm.shape,dtype=np.float64)
     scores_gm=np.zeros(gm.shape,dtype=np.float64)
+    if 'nan' in whole_list:
+       whole_list.remove('nan')
 
-    whole_list.remove('nan')
     orig_len = len(whole_list)
 
     if orig_len > 0:
