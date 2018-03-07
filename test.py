@@ -11,7 +11,7 @@ import pyEnsLib
 # This routine creates a summary file from an ensemble of AM4 history files
 def main(argv):
     # Get command line stuff and store in a dictionary
-    s = 'tag= compset= esize= tslice= res= sumfile= indir= sumfiledir= verbose jsonfile= mpi_enable maxnorm gmonly popens cumul regx= startMon= endMon= fIndex= mach= histfolder= usetiles= outputfreq='
+    s = 'tag= compset= esize= tslice= res= sumfile= indir= sumfiledir= verbose jsonfile= mpi_enable maxnorm gmonly popens cumul regx= startMon= endMon= fIndex= mach= histfolder= usetiles= outputfreq= landmask'
     optkeys = s.split()
     try: 
         opts, args = getopt.getopt(argv, "h", optkeys)
@@ -47,6 +47,7 @@ def main(argv):
     opts_dict['usetiles'] = 1
     opts_dict['mach'] = 'gaea'
     opts_dict['model'] = 'gfdl'
+    opts_dict['landmask'] = False
 
     # This creates the dictionary of input arguments 
     opts_dict = pyEnsLib.getopt_parseconfig(opts,optkeys,'ES',opts_dict)
@@ -443,9 +444,11 @@ def main(argv):
         if num_3d > 0:
            v_lev = nc_sumfile.create_variable("lev", 'f', ('nlev',))
            v_var3d = nc_sumfile.create_variable("var3d", 'S1', ('nvars3d', 'str_size'))
+           
         v_vars = nc_sumfile.create_variable("vars", 'S1', ('nvars', 'str_size'))
         if num_2d > 0:     
            v_var2d = nc_sumfile.create_variable("var2d", 'S1', ('nvars2d', 'str_size'))
+        
         if not opts_dict['gmonly']:
            if is_SE == True:
               v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'ncol'))
@@ -456,6 +459,7 @@ def main(argv):
               if num_3d > 0:
                  v_ens_avg3d = nc_sumfile.create_variable("ens_avg3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
                  v_ens_stddev3d = nc_sumfile.create_variable("ens_stddev3d", 'f', ('nvars3d', 'nlev', 'nlat', 'nlon'))
+                 
               if num_2d > 0:  
                  v_ens_avg2d = nc_sumfile.create_variable("ens_avg2d", 'f', ('nvars2d', 'nlat', 'nlon'))
                  v_ens_stddev2d = nc_sumfile.create_variable("ens_stddev2d", 'f', ('nvars2d', 'nlat', 'nlon'))
@@ -463,13 +467,23 @@ def main(argv):
            v_RMSZ = nc_sumfile.create_variable("RMSZ", 'f', ('nvars', 'ens_size'))
         if opts_dict['model'] == 'gfdl':
            v_gm = nc_sumfile.create_variable("tile_mean", 'f', ('nvars', 'ens_size'))
+
         else:
            v_gm = nc_sumfile.create_variable("global_mean", 'f', ('nvars', 'ens_size'))   
+
         v_standardized_gm=nc_sumfile.create_variable("standardized_gm",'f',('nvars','ens_size'))
         v_loadings_gm = nc_sumfile.create_variable('loadings_gm','f',('nvars','nvars'))
         v_mu_gm = nc_sumfile.create_variable('mu_gm','f',('nvars',))
         v_sigma_gm = nc_sumfile.create_variable('sigma_gm','f',('nvars',))
         v_sigma_scores_gm = nc_sumfile.create_variable('sigma_scores_gm','f',('nvars',))
+
+        if opts_dict['landmask']:
+           v_gm_land = nc_sumfile.create_variable("land_mean", 'f', ('nvars', 'ens_size'))
+           v_standardized_gm_land=nc_sumfile.create_variable("standardized_land_mean",'f',('nvars','ens_size'))
+           v_loadings_gm_land = nc_sumfile.create_variable('loadings_land_mean','f',('nvars','nvars'))
+           v_mu_gm_land = nc_sumfile.create_variable('mu_land_mean','f',('nvars',))
+           v_sigma_gm_land = nc_sumfile.create_variable('sigma_land_mean','f',('nvars',))
+           v_sigma_scores_gm_land = nc_sumfile.create_variable('sigma_scores_land_mean','f',('nvars',))
 
         # Assign vars, var3d and var2d
         if me.get_rank() == 0 and (verbose == True):
@@ -537,7 +551,14 @@ def main(argv):
         if me.get_rank() == 0 and verbose == True:
            print "Calculating global means ....."
         if not opts_dict['cumul']:
-           gm3d,gm2d,var_list = pyEnsLib.generate_global_mean_for_summary(o_files,var3_list_loc,var2_list_loc, is_SE, False,opts_dict,tx)
+           if not opts_dict['landmask']:
+              gm3d,gm2d,var_list = pyEnsLib.generate_global_mean_for_summary(o_files,var3_list_loc,var2_list_loc, is_SE, False,opts_dict,tx)
+           elif opts_dict['landmask'] and num_3d > 0 and num_2d == 0:
+              gm3d,gm2d,gm3d_land,var_list = pyEnsLib.generate_global_mean_for_summary(o_files,var3_list_loc,var2_list_loc, is_SE, False,opts_dict,tx)  
+           elif opts_dict['landmask'] and num_3d == 0 and num_2d > 0:
+              gm3d,gm2d,gm2d_land,var_list = pyEnsLib.generate_global_mean_for_summary(o_files,var3_list_loc,var2_list_loc, is_SE, False,opts_dict,tx)  
+           elif  opts_dict['landmask'] and num_3d > 0 and num_2d > 0:
+              gm3d,gm2d,gm3d_land,gm2d_land,var_list = pyEnsLib.generate_global_mean_for_summary(o_files,var3_list_loc,var2_list_loc, is_SE, False,opts_dict,tx)  
         
         if me.get_rank() == 0 and verbose == True:
            print "Finish calculating global means ....."
@@ -563,6 +584,8 @@ def main(argv):
                  slice_index=get_stride_list(len(d3_var_names),me)
                   # Gather global means 3d results
                  gm3d=gather_npArray(gm3d,me,slice_index,(len(d3_var_names),len(o_files)))
+                 if opts_dict['landmask']:
+                    gm3d_land = gather_npArray(gm3d_land,me,slice_index,(len(d3_var_names),len(o_files)))
                  if not opts_dict['gmonly']:
                     # Gather zscore3d results
                     zscore3d=gather_npArray(zscore3d,me,slice_index,(len(d3_var_names),len(o_files)))
@@ -577,7 +600,8 @@ def main(argv):
                  slice_index=get_stride_list(len(d2_var_names),me)
                  # Gather global means 2d results
                  gm2d=gather_npArray(gm2d,me,slice_index,(len(d2_var_names),len(o_files)))
-
+                 if opts_dict['landmask']:
+                    gm2d_land = gather_npArray(gm2d_land,me,slice_index,(len(d3_var_names),len(o_files)))
                  if not opts_dict['gmonly']:
                     # Gather zscore2d results
                     zscore2d=gather_npArray(zscore2d,me,slice_index,(len(d2_var_names),len(o_files)))
@@ -596,11 +620,17 @@ def main(argv):
            if not opts_dict['cumul']:
               if num_3d > 0 and num_2d > 0:
                  gmall=np.concatenate((gm3d,gm2d),axis=0)
+                 if opts_dict['landmask']:
+                    gmall_land=np.concatenate((gm3d_land,gm2d_land),axis=0)
               elif num_3d == 0 and num_2d > 0:
                  gmall = gm2d
+                 if opts_dict['landmask']:
+                    gmall_land = gm2d_land
               elif num_3d > 0 and num_2d == 0:
                  gmall = gm3d
-                 
+                 if opts_dict['landmask']:
+                    gmall_land = gm3d_land
+
               if not opts_dict['gmonly']:
                  if num_2d > 0 and num_3d > 0: 
                     Zscoreall=np.concatenate((zscore3d,zscore2d),axis=0)
@@ -640,12 +670,23 @@ def main(argv):
               gmall=gmall_temp
  
            mu_gm,sigma_gm,standardized_global_mean,loadings_gm,scores_gm=pyEnsLib.pre_PCA(gmall,all_var_names,var_list,me)
+          
            v_gm[:,:]=gmall[:,:]
            v_standardized_gm[:,:]=standardized_global_mean[:,:]
            v_mu_gm[:]=mu_gm[:]
            v_sigma_gm[:]=sigma_gm[:].astype(np.float32)
            v_loadings_gm[:,:]=loadings_gm[:,:]
            v_sigma_scores_gm[:]=scores_gm[:]
+
+           if opts_dict['landmask']:
+              mu_gm_land,sigma_gm_land,standardized_global_mean_land,loadings_gm_land,scores_gm_land=pyEnsLib.pre_PCA(gmall_land,all_var_names,var_list,me)
+
+              v_gm_land[:,:] = gmall_land[:,:]
+              v_standardized_gm_land[:,:]=standardized_global_mean_land[:,:]
+              v_mu_gm_land[:]=mu_gm_land[:]
+              v_sigma_gm_land[:]=sigma_gm_land[:].astype(np.float32)
+              v_loadings_gm_land[:,:]=loadings_gm_land[:,:]
+              v_sigma_scores_gm_land[:]=scores_gm_land[:]
 
            if me.get_rank() == 0:
               print "All Done"
