@@ -1,0 +1,5 @@
+{
+"IncludedVar": ["t_ref", "u_ref", "v_ref", "wind_ref",
+"lwup_sfc","z_full","omega",
+"heat2d_rad","low_cld_amt","zsml", "z_pbl",  "wentr_pbl"]
+}
