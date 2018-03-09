@@ -16,7 +16,7 @@ import asaptools.simplecomm as simplecomm
 def main(argv):
     # Get command line stuff and store in a dictionary
     # Get command line stuff and store in a dictionary
-    s='indir= input_globs= sumfile= tslice= nPC= sigMul= verbose minPCFail= minRunFail= numRunFile= printVarTest popens jsonfile= mpi_enable nbin= minrange= maxrange= outfile= casejson= npick= pepsi_gm test_failure pop_tol= pop_threshold= prn_std_mean lev= eet= json_case= mach= histfolder= outputfreq= usetiles= model= landmask'
+    s='indir= input_globs= sumfile= tslice= nPC= sigMul= verbose minPCFail= minRunFail= numRunFile= printVarTest popens jsonfile= mpi_enable nbin= minrange= maxrange= outfile= casejson= npick= pepsi_gm test_failure pop_tol= pop_threshold= prn_std_mean lev= eet= json_case= mach= histfolder= usetiles= outputfreq= model= landmask'
     optkeys = s.split()
     try: 
         opts, args = getopt.getopt(argv, "h", optkeys)
@@ -24,6 +24,8 @@ def main(argv):
         pyEnsLib.EnsSum_usage()
         sys.exit(2)
 
+    print opts
+    print args
     # Put command line options in a dictionary - also set defaults
     opts_dict={}
     
@@ -32,7 +34,7 @@ def main(argv):
     opts_dict['indir'] = ''
     opts_dict['sumfile'] = ''
     opts_dict['tslice'] = 0
-    opts_dict['nPC'] = 20
+    opts_dict['nPC'] = 5
     opts_dict['sigMul'] = 2
     opts_dict['verbose'] = False
     opts_dict['minPCFail'] = 3
@@ -107,7 +109,7 @@ def main(argv):
        outputfreq_dict[8] = ['8xdaily']
                     
        outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
-    
+       print opts_dict['outputfreq']
        use_tiles = [opts_dict['usetiles']]
       
        if len(use_tiles) > 1:
@@ -140,7 +142,7 @@ def main(argv):
     #
     # Form ensembles, each missing one member; compute RMSZs and global means
     #    #for each variable, we also do max norm also (currently done in pyStats)
-    tslice = opts_dict['tslice']
+   
     input_dir = opts_dict['indir']      
     if opts_dict['model'] == 'gfdl':
       if os.path.exists(input_dir):
@@ -162,6 +164,8 @@ def main(argv):
                                for h in histfolder:
                                    if h in file_path and outputfreq in file_path:
                                       in_files_temp.append(file_path)
+    else:
+       tslice = opts_dict['tslice']
       
     # loop through individual tiles
     for tx in tiles:
@@ -208,8 +212,10 @@ def main(argv):
            tstring = 'tile' + str(tx)
            in_files = [f for f in in_files_temp if tstring in f]
            sumfile = [f for f in this_sumfile if tstring in f][0]
-       
 
+           tslice = pyEnsLib.get_timestep_number(input_dir,in_files[0])
+       
+           print 'tslice is ', tslice
         
         num_file = len(in_files)
         if opts_dict['numRunFile'] > num_file:
@@ -256,9 +262,9 @@ def main(argv):
         else:
            # Read all variables from the ensemble summary file
            if opts_dict['landmask']:
-              ens_var_name,ens_avg,ens_stddev,ens_rmsz,ens_gm,num_var3d,mu_gm,sigma_gm,loadings_gm,sigma_scores_gm,is_SE,std_gm, tile_mean, land_mean,std_land_mean, mu_land_mean,sigma_land_mean,loadings_land_mean,sigma_scores_land_mean = pyEnsLib.read_ensemble_summary(sumfile, opts_dict) 
+              ens_var_name,ens_avg,ens_stddev,ens_rmsz,ens_gm,num_var3d,mu_gm,sigma_gm,loadings_gm,sigma_scores_gm,is_SE_sum,std_gm, tile_mean, land_mean,std_land_mean, mu_land_mean,sigma_land_mean,loadings_land_mean,sigma_scores_land_mean = pyEnsLib.read_ensemble_summary(sumfile, opts_dict) 
            else:    
-              ens_var_name,ens_avg,ens_stddev,ens_rmsz,ens_gm,num_3d,mu_gm,sigma_gm,loadings_gm,sigma_scores_gm,is_SE_sum,std_gm, tile_mean = pyEnsLib.read_ensemble_summary(sumfile, opts_dict)
+              ens_var_name,ens_avg,ens_stddev,ens_rmsz,ens_gm,num_var3d,mu_gm,sigma_gm,loadings_gm,sigma_scores_gm,is_SE_sum,std_gm, tile_mean = pyEnsLib.read_ensemble_summary(sumfile, opts_dict)
         if len(ens_rmsz) == 0:
            gmonly = True
         # Add ensemble rmsz and global mean to the dictionary "variables"
@@ -269,17 +275,26 @@ def main(argv):
 
         for k,v in ens_gm.iteritems():
             pyEnsLib.addvariables(variables,k,'gmRange',v)
+
+        if opts_dict['landmask']:
+           for k,v in ens_gm.iteritems():
+               pyEnsLib.addvariables(variables,k,'landRange',v)
         # Get 3d variable name list and 2d variable name list seperately
         var_name3d=[]
         var_name2d=[]
         for vcount,v in enumerate(ens_var_name):
-            if vcount < num_3d:
+            if vcount < num_var3d:
                var_name3d.append(v)
             else:
                var_name2d.append(v)
+
+        n3d = len(var_name3d)
+        n2d = len(var_name2d)
        
         # Get ncol and nlev value
         npts3d,npts2d,is_SE=pyEnsLib.get_ncol_nlev(ifiles[0])
+        #print 'n3d: ', n3d
+        #print 'n2d: ', n2d
         if is_SE ^ is_SE_sum:
            print 'Warning: please note the ensemble summary file is different from the testing files, they use different grids'
 
@@ -306,28 +321,158 @@ def main(argv):
                countzscore[fcount]=pyEnsLib.evaluatestatus('zscore','zscoreRange',variables,'ens',results,'f'+str(fcount))
 
         # Calculate the new run global mean
-        mean3d,mean2d,varlist=pyEnsLib.generate_global_mean_for_summary(ifiles,var_name3d,var_name2d,is_SE,opts_dict['pepsi_gm'],opts_dict)
+        #mean3d,mean2d,varlist=pyEnsLib.generate_global_mean_for_summary(ifiles,var_name3d,var_name2d,is_SE,opts_dict['pepsi_gm'],opts_dict)
         
         if not opts_dict['landmask']:
-              mean3d,mean2d,var_list = pyEnsLib.generate_global_mean_for_summary(i_files,var_name3d,var_name2d, is_SE, False,opts_dict,tx)
-           elif opts_dict['landmask'] and npts3d > 0 and npts2d == 0:
-              mean3d,mean2d,mean3d_land,var_list = pyEnsLib.generate_global_mean_for_summary(i_files,var_name3d,var_name2d, is_SE, False,opts_dict,tx)  
-           elif opts_dict['landmask'] and npts3d == 0 and npts2d > 0:
-              mean3d,mean2d,mean2d_land,var_list = pyEnsLib.generate_global_mean_for_summary(i_files,var_name3d,var_name2d, is_SE, False,opts_dict,tx)  
-           elif  opts_dict['landmask'] and npts3d > 0 and npts2d > 0:
-              mean3d,mean2d,mean3d_land,mean2d_land,var_list = pyEnsLib.generate_global_mean_for_summary(i_files,var_name3d,var_name2d, is_SE, False,opts_dict,tx)  
-
-        means=np.concatenate((mean3d,mean2d),axis=0)
-
-
-
-                  
-
-
+           mean3d,mean2d,var_list = pyEnsLib.generate_global_mean_for_summary(ifiles,var_name3d,var_name2d, is_SE, False,opts_dict,tx)
+        elif opts_dict['landmask'] and n3d > 0 and n2d > 0:
+           mean3d,mean2d,mean3d_land,var_list = pyEnsLib.generate_global_mean_for_summary(ifiles,var_name3d,var_name2d, is_SE, False,opts_dict,tx)  
+           land_means = np.concatenate((mean3d_land,mean2d_land),axis=0)
+        elif opts_dict['landmask'] and n3d == 0 and n2d > 0:
+           mean3d,mean2d,mean2d_land,var_list = pyEnsLib.generate_global_mean_for_summary(ifiles,var_name3d,var_name2d, is_SE, False,opts_dict,tx)  
+           land_means = mean2d_land
+        elif opts_dict['landmask'] and n3d > 0 and n2d == 0:
+           mean3d,mean2d,mean3d_land,mean2d_land,var_list = pyEnsLib.generate_global_mean_for_summary(ifiles,var_name3d,var_name2d, is_SE, False,opts_dict,tx)  
+           land_means = mean3d_land
  
+        if n3d == 0 and n2d > 0:
+           means = mean2d
+        elif n3d > 0 and n2d == 0:
+           means = mean3d
+        elif n3d and n2d > 0:
+           means=np.concatenate((mean3d,mean2d),axis=0)
+   
+        # Add the new run global mean to the dictionary "results"
+        for i in range(means.shape[1]): # n files
+            for j in range(means.shape[0]): # n variables
+                pyEnsLib.addresults(results,'means',means[j][i],ens_var_name[j],'f'+str(i))
+        if opts_dict['landmask']:
+           for i in range(land_means.shape[1]): # n files
+               for j in range(land_means.shape[0]): # n variables
+                   pyEnsLib.addresults(results,'land_means',land_means[j][i],ens_var_name[j],'f'+str(i))
+                
+        # Evaluate the new run global mean (CESM) or tile mean (GFDL) if it is in the range of the ensemble summary global/tile mean range
+        for fcount,fid in enumerate(ifiles):
+            countgm[fcount]=pyEnsLib.evaluatestatus('means','gmRange',variables,'gm',results,'f'+str(fcount))
+        print countgm[2]
 
+        if opts_dict['landmask']:
+           for fcount,fid in enumerate(ifiles):
+               count_land[fcount]=pyEnsLib.evaluatestatus('land_means','landRange',variables,'land_mean',results,'f'+str(fcount))
 
+        # Calculate the PCA scores of the new run
+        new_scores,var_list,comp_std_gm=pyEnsLib.standardized(means,mu_gm,sigma_gm,loadings_gm,ens_var_name,opts_dict,ens_avg,me)
+        print new_scores.shape
+        print sigma_scores_gm.shape
+        run_index,decision=pyEnsLib.comparePCAscores(ifiles,new_scores,sigma_scores_gm,opts_dict,me)
 
-
+        if opts_dict['landmask']:
+          # Calculate the PCA scores of the new run
+          new_scores_land,var_list_land,comp_std_land=pyEnsLib.standardized(land_means,mu_land_mean,sigma_land_mean,loadings_land_mean,ens_var_name,opts_dict,ens_avg,me)
+         
+          run_index,decision=pyEnsLib.comparePCAscores(ifiles,new_scores_land,sigma_scores_land_mean,opts_dict,me)
+      
+        # If there is failure, plot out standardized mean and compared standardized mean in box plots
+        if opts_dict['prn_std_mean'] and decision == 'FAILED':
+            import seaborn as sns
+            category={"all_outside99":[],"two_outside99":[],"one_outside99":[],"all_oneside_outside1QR":[]}
+            b=list(pyEnsLib.chunk(ens_var_name,10))
+            for f,alist in enumerate(b):
+                for fc,avar in enumerate(alist):
+                    dist_995=np.percentile(std_gm[avar],99.5)
+                    dist_75=np.percentile(std_gm[avar],75)
+                    dist_25=np.percentile(std_gm[avar],25)
+                    dist_05=np.percentile(std_gm[avar],0.5)
+                    c=0
+                    d=0
+                    p=0
+                    q=0
+                    for i in range(comp_std_gm[f+fc].size):
+                        if comp_std_gm[f+fc][i]>dist_995:
+                           c=c+1
+                        elif comp_std_gm[f+fc][i]<dist_05:
+                           d=d+1
+                        elif (comp_std_gm[f+fc][i]<dist_995 and comp_std_gm[f+fc][i]>dist_75):
+                           p=p+1
+                        elif (comp_std_gm[f+fc][i]>dist_05 and comp_std_gm[f+fc][i]<dist_25):
+                           q=q+1
+                    if c == 3 or d == 3:
+                       category["all_outside99"].append((avar,f+fc))
+                    elif c == 2 or d == 2:    
+                       category["two_outside99"].append((avar,f+fc))
+                    elif c == 1 or d == 1:
+                       category["one_outside99"].append((avar,f+fc))
+                    if p == 3 or q == 3:
+                       category["all_oneside_outside1QR"].append((avar,f+fc))
+            part_name=opts_dict['indir'].split('/')[-1]
+            if not part_name:
+                part_name=opts_dict['indir'].split('/')[-2]
+            for key in sorted(category):
+                list_array=[]
+                list_array2=[]
+                list_var=[]
+                value=category[key]
+                print "value len=",key,len(value)
+                for each_var in value:
+                    list_array.append(std_gm[each_var[0]])
+                    list_array2.append(comp_std_gm[each_var[1]])
+                    list_var.append(each_var[0])
+                if len(value) !=0 :
+                    ax=sns.boxplot(data=list_array,whis=[0.5,99.5],fliersize=0.0)
+                    sns.stripplot(data=list_array2,jitter=True,color="r")
+                    sns.plt.xticks(range(len(list_array)),list_var,fontsize=8,rotation=-45)
+                    if decision == 'FAILED':
+                       sns.plt.savefig(part_name+"_"+key+"_fail.png")
+                    else:
+                       sns.plt.savefig(part_name+"_"+key+"_pass.png")
+                    sns.plt.clf()
+                
+            '''
+            if len(run_index)>0:
+               json_file=opts_dict['json_case']
+               if (os.path.exists(json_file)):
+                  fd=open(json_file)
+                  metainfo=json.load(fd)
+                  caseindex=metainfo['CaseIndex']
+                  enspath=str(metainfo['EnsPath'][0])
+                  #print caseindex
+                  if (os.path.exists(enspath)):
+                     i=0
+                     comp_file=[]
+                     search = '\.[0-9]{3}\.'
+                     for name in in_files_list:
+                        s=re.search(search,name)
+                        in_files_index=s.group(0)
+                        if in_files_index[1:4] in caseindex:
+                           ens_index=str(caseindex[in_files_index[1:4]])
+                           wildname='*.'+ens_index+'.*'
+                           full_glob_str=os.path.join(enspath,wildname)
+                           glob_file=glob.glob(full_glob_str)
+                           comp_file.extend(glob_file)
+                     print "comp_file=",comp_file                
+                     pyEnsLib.plot_variable(in_files_list,comp_file,opts_dict,var_list,run_index,me)
+            '''
+        # Print out 
+        if opts_dict['printVarTest']:
+            print '*********************************************** '
+            print 'Variable-based testing (for reference only - not used to determine pass/fail)'
+            print '*********************************************** '
+            for fcount,fid in enumerate(ifiles):
+                print ' '
+                print 'Run '+str(fcount+1)+":"
+                print ' '
+                if not gmonly:
+                    print '***'+str(countzscore[fcount])," of "+str(len(ens_var_name))+' variables are outside of ensemble RMSZ distribution***'
+                    pyEnsLib.printsummary(results,'ens','zscore','zscoreRange',(fcount),variables,'RMSZ')
+                    print ' '
+                print '***'+str(countgm[fcount])," of "+str(len(ens_var_name))+' variables are outside of ensemble global mean distribution***'
+                pyEnsLib.printsummary(results,'gm','means','gmRange',fcount,variables,'global mean')
+                print ' '
+                print '----------------------------------------------------------------------------'
+    if me.get_rank() == 0:
+        print ' '
+        print "Testing complete."
+print ' '
+        
 if __name__ == "__main__":
     main(sys.argv[1:])
