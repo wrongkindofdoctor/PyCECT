@@ -626,8 +626,8 @@ def generate_global_mean_for_summary(o_files,var_name3d,var_name2d,is_SE,pepsi_g
     else:
        n2d = len(var_name2d)
 
-    print 'n2d = ', n2d
-    print 'n3d = ', n3d
+    #print 'n2d = ', n2d
+    #print 'n3d = ', n3d
 
     tot = n3d + n2d
     input_dims,nlev=get_nlev(o_files,popens)   
@@ -909,6 +909,8 @@ def read_ensemble_summary(ens_file,opts_dict):
   loadings_land_mean={}
   sigma_scores_land_mean={}
 
+  num_var3d=0
+  num_var2d=0
   # Retrieve the variable list from ensemble file
   for k,v in fens.variables.iteritems():
       if k== 'vars':
@@ -1297,6 +1299,9 @@ def evaluatestatus(name,rangename,variables,key,results,thefile):
 #
 def comparePCAscores(ifiles,new_scores,sigma_scores_gm,opts_dict,me):
 
+   if opts_dict['nPC'] > new_scores.shape[0]:
+      print 'Error: number of PCs larger than set of analysis variables'
+      sys.exit(1)
    comp_array=np.zeros(new_scores.shape,dtype=np.int32)
    sum=np.zeros(new_scores.shape[0],dtype=np.int32)
    eachruncount=np.zeros(new_scores.shape[1],dtype=np.int32)
@@ -1991,5 +1996,14 @@ def get_landmask(input_dir, tileNumber):
     landMask = f.variables['land_mask'][:]
     f.close()
     return landMask
+
+
+def get_timestep_number(input_dir,filename):	
+    f = Nio.open_file(input_dir + '/' + filename,"r")
+    t = f.variables['time'][:]
+    timestep = t.shape[0]-1
+    f.close()
+    return timestep
+
 
 
