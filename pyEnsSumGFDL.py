@@ -416,9 +416,14 @@ def main(argv):
            nc_sumfile.create_dimension('nlon', nlon)
         if num_3d > 0:
            nc_sumfile.create_dimension('nlev', nlev)
-        nc_sumfile.create_dimension('nvars3d', num_3d)
+           nc_sumfile.create_dimension('nvars3d', num_3d)
+        else:
+           nc_sumfile.create_dimension('nvars3d', 1)
         if num_2d > 0:
            nc_sumfile.create_dimension('nvars2d', num_2d)
+        else:
+           nc_sumfile.create_dimension('nvars2d', 1)
+
         nc_sumfile.create_dimension('ens_size', esize)
         nc_sumfile.create_dimension('nvars', num_3d + num_2d)
         nc_sumfile.create_dimension('str_size', str_size)
