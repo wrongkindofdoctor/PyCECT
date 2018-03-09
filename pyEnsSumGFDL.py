@@ -76,7 +76,7 @@ def main(argv):
        outputfreq_dict[8] = ['8xdaily']
                     
        outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
-       use_tiles = [opts_dict['usetiles']]
+       use_tiles = opts_dict['usetiles']
       
        if len(use_tiles) > 1:
           tiles = [int(i) for i in use_tiles.split(',')]
@@ -541,7 +541,12 @@ def main(argv):
 
         # Form ensembles, each missing one member; compute RMSZs and global means
         # for each variable, we also do max norm also (currently done in pyStats)
-        tslice = opts_dict['tslice']
+        if outputfreq != 'month':
+           tslice = pyEnsLib.get_timestep_number(input_dir,in_files[0])
+        else:
+           tslice = opts_dict['tslice']
+        print 'tslice is ', tslice
+        
         var3_list_loc = []
         var2_list_loc = []
         if not opts_dict['cumul']:
