@@ -32,14 +32,14 @@ def main(argv):
     # Defaults
     opts_dict['input_globs'] = ''
     opts_dict['indir'] = ''
-    opts_dict['sumfile'] = ''
+    opts_dict['sumfile'] = 'ens_summary.nc'
     opts_dict['tslice'] = 0
     opts_dict['nPC'] = 5
     opts_dict['sigMul'] = 2
     opts_dict['verbose'] = False
     opts_dict['minPCFail'] = 3
     opts_dict['minRunFail'] = 2
-    opts_dict['numRunFile'] = 3
+    opts_dict['numRunFile'] = 10
     opts_dict['printVarTest'] = False
     opts_dict['popens'] = False
     opts_dict['jsonfile'] = ''
@@ -56,7 +56,7 @@ def main(argv):
     opts_dict['pop_threshold'] = 0.90
     opts_dict['prn_std_mean'] = False
     opts_dict['lev'] = 0
-    opts_dict['eet'] = 0
+    opts_dict['eet'] = 20
     opts_dict['json_case'] = ''
     opts_dict['mach'] = 'gaea'
     opts_dict['histfolder'] = 1
@@ -84,8 +84,8 @@ def main(argv):
 
     # Ensure sensible EET value
     if opts_dict['eet'] and opts_dict['numRunFile'] > opts_dict['eet']:
-        pyEnsLib.CECT_usage()
-        sys.exit(2)
+       'print error: EET must be greater than numRunFile (default = 10)'
+       sys.exit(2)
 
     # only require tag, compset, and res if cesm
     this_sumfile = []
@@ -110,7 +110,7 @@ def main(argv):
                     
        outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
        print opts_dict['outputfreq']
-       use_tiles = [opts_dict['usetiles']]
+       use_tiles = opts_dict['usetiles']
       
        if len(use_tiles) > 1:
           tiles = [int(i) for i in use_tiles.split(',')]
@@ -145,25 +145,25 @@ def main(argv):
    
     input_dir = opts_dict['indir']      
     if opts_dict['model'] == 'gfdl':
-      if os.path.exists(input_dir):
-         # Get the list of files
-         in_dirs_temp = os.listdir(input_dir)
-         in_files_temp =[]
-         # get directories with output for desired time average
-         for d in in_dirs_temp:
-             for root,subdirs,files in os.walk(os.path.join(input_dir,d)):
-                 if len(files)>0:
-                    # remove input_dir from root, since input_dir is joined
-                    # to file name path during read/write
-                    new_root = root.replace(input_dir,'')
-                    for f in files:
-                        for tx in tiles:
-                            if '.tile' + str(tx) in f: 
-                               file_path=os.path.join(new_root,f)
-                               #print file_path
-                               for h in histfolder:
-                                   if h in file_path and outputfreq in file_path:
-                                      in_files_temp.append(file_path)
+       if os.path.exists(input_dir):
+          # Get the list of files
+          in_dirs_temp = os.listdir(input_dir)
+          in_files_temp =[]
+          # get directories with output for desired time average
+          for d in in_dirs_temp:
+              for root,subdirs,files in os.walk(os.path.join(input_dir,d)):
+                  if len(files)>0:
+                     # remove input_dir from root, since input_dir is joined
+                     # to file name path during read/write
+                     new_root = root.replace(input_dir,'')
+                     for f in files:
+                         for tx in tiles:
+                             if '.tile' + str(tx) in f and f[len(f)-3:len(f)] == '.nc': 
+                                file_path=os.path.join(new_root,f)
+                                #print file_path
+                                for h in histfolder:
+                                    if h in file_path and outputfreq in file_path:
+                                       in_files_temp.append(file_path)
     else:
        tslice = opts_dict['tslice']
       
