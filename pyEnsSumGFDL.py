@@ -63,11 +63,13 @@ def main(argv):
        output_dict[0] = ['1x12m0d']
        output_dict[1] = ['1x1m0d']   
        output_dict[2] = ['1x0m2d','1x0m8d','2x0m1d']
+     
+       histfolder = output_dict[opts_dict['histfolder']]
+
        output_allowed_opts = [0,1,4,8]
        if opts_dict['outputfreq'] not in output_allowed_opts:
           print 'Error: output frequency must be 0 (monthly)\n 1 (annual)\n 4 (4xdaily)\n 8 (8xdaily)'
           sys.exit()
-       histfolder = output_dict[opts_dict['histfolder']]
 
        outputfreq_dict=dict()
        outputfreq_dict[0] = ['month']
@@ -77,12 +79,11 @@ def main(argv):
                     
        outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
        use_tiles = opts_dict['usetiles']
-      
+    
        if len(use_tiles) > 1:
           tiles = [int(i) for i in use_tiles.split(',')]
        else:
-          tiles = [int(use_tiles[0])]
-       #print tiles   
+          tiles = [int(use_tiles[0])
         
     else:
        if not (opts_dict['tag'] and opts_dict['compset'] and opts_dict['mach'] or opts_dict['res']):
@@ -148,7 +149,7 @@ def main(argv):
                      new_root = root.replace(input_dir,'')
                      for f in files:
                          for tx in use_tiles:
-                             if '.tile' + str(tx) in f: 
+                             if '.tile' + str(tx) in f and f[len(f)-3:len(f)] == '.nc': 
                                 file_path=os.path.join(new_root,f)
                                 #print file_path
                                 for h in histfolder:
@@ -177,8 +178,8 @@ def main(argv):
         if me.get_rank()==0 and (verbose == True):
             print 'Number of files in input directory = ', num_files
         if (num_files < esize):
-            if me.get_rank()==0 and (verbose == True):
-               print 'Number of files in input directory (',num_files,\
+            if me.get_rank()==0:
+               print 'Error: Number of files in input directory (',num_files,\
                 ') is less than specified ensemble size of ', esize
             sys.exit(2)
         if (num_files > esize):
@@ -341,9 +342,10 @@ def main(argv):
                if vr == 3 and vs[1] == nlat and vs[2] == nlon:  
                   is_2d = True 
                   num_2d += 1
-               elif vr == 4 and vs[2] == nlat and vs[3] == nlon and vs[1] == nlev or vs[1]==nilev:  
-                  is_3d = True 
-                  num_3d += 1
+               elif vr==4:
+                  if vs[2] == nlat and vs[3] == nlon and vs[1] == nlev or vs[1]==nilev:  
+                     is_3d = True 
+                     num_3d += 1
                     
             if is_3d == True:
                str_size = max(str_size, len(k))
@@ -545,7 +547,7 @@ def main(argv):
            tslice = pyEnsLib.get_timestep_number(input_dir,in_files[0])
         else:
            tslice = opts_dict['tslice']
-        print 'tslice is ', tslice
+        #print 'tslice is ', tslice
         
         var3_list_loc = []
         var2_list_loc = []
