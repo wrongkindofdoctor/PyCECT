@@ -35,9 +35,7 @@ def main(argv):
     opts_dict['verbose'] = False
     opts_dict['mpi_enable'] = False
     opts_dict['maxnorm'] = False
-    opts_dict['gmonly'] = False
     opts_dict['popens'] = False
-    opts_dict['cumul'] = False
     opts_dict['regx'] = 'test'
     opts_dict['startMon'] = 1
     opts_dict['endMon'] = 1
@@ -54,9 +52,8 @@ def main(argv):
 
     verbose = opts_dict['verbose']
 
-    st = opts_dict['esize']
-    esize = int(st)
-    # only require tag, compset, and res if cesm
+    esize = int(opts_dict['esize'])
+    # only require tag, compset, and res if CESM
     if opts_dict['model'] == 'gfdl':
        # Put output history folder options (histfolder=0,1,2) in a dictionary
        output_dict=dict()
@@ -78,23 +75,21 @@ def main(argv):
        outputfreq_dict[8] = ['8xdaily']
                     
        outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
-       use_tiles = opts_dict['usetiles']
-    
+       # get tiles 
+ 
+       use_tiles = [opts_dict['usetiles']]
+      
        if len(use_tiles) > 1:
           tiles = [int(i) for i in use_tiles.split(',')]
        else:
-          tiles = [int(use_tiles[0])
+          tiles = [int(use_tiles[0])]
         
     else:
-       if not (opts_dict['tag'] and opts_dict['compset'] and opts_dict['mach'] or opts_dict['res']):
+       if not opts_dict['tag'] and opts_dict['compset'] and opts_dict['mach'] or opts_dict['res']:
           print 'Please specify --tag, --compset, --mach and --res options'
-          sys.exit()
-    #output files
-    # output directory tree is root/platform.compiler-debug/prod/repro(-openmp)/duration_pelayout/history/
-    #input_dir='/net2/Jessica.Liptak/'
-    #
-    # Form ensembles, each missing one member; compute RMSZs and global means
-    #    #for each variable, we also do max norm also (currently done in pyStats)
+          sys.exit(1)
+    # get list of history output files to analyze
+ 
     input_dir = opts_dict['indir']      
    
     # The var list that will be excluded
@@ -160,8 +155,13 @@ def main(argv):
     else:
        if me.get_rank()==0:
           print 'Input directory: ',input_dir,' not found'
-       sys.exit(2)
+       sys.exit(1)
         
+    if esize > len(in_files_temp):
+       if me.get_rank()==0:
+          print 'Error: ensemble size is less than number of input files'
+       sys.exit(1)
+       
     # loop through individual tiles
     for tx in tiles:
         in_files=[]
@@ -175,18 +175,18 @@ def main(argv):
         in_files.sort()
 
         num_files = len(in_files)
-        if me.get_rank()==0 and (verbose == True):
+        if me.get_rank()==0 and verbose == True:
             print 'Number of files in input directory = ', num_files
-        if (num_files < esize):
-            if me.get_rank()==0:
-               print 'Error: Number of files in input directory (',num_files,\
+        if num_files < esize:
+           if me.get_rank()==0:
+              print 'Error: Number of files in input directory (',num_files,\
                 ') is less than specified ensemble size of ', esize
-            sys.exit(2)
-        if (num_files > esize):
-            if me.get_rank()==0 and (verbose == True):
-               print 'NOTE: Number of files in ', input_dir, \
-                'is greater than specified ensemble size of ', esize ,\
-                '\nwill just use the first ',  esize, 'files'
+           sys.exit(2)
+        if num_files > esize:
+           if me.get_rank()==0 and verbose == True:
+              print 'NOTE: Number of files in ', input_dir, \
+               'is greater than specified ensemble size of ', esize ,\
+               '\nwill just use the first ',  esize, 'files'
    
         if opts_dict['cumul']:
            if opts_dict['regx']:
@@ -206,8 +206,8 @@ def main(argv):
                o_files.append(Nio.open_file(input_dir + '/' + onefile,"r"))
             else:
                if me.get_rank()==0:
-                  print "COULD NOT LOCATE FILE "+ input_dir + onefile + "! EXITING...."
-               sys.exit() 
+                  print "Error: COULD NOT LOCATE FILE "+ input_dir + onefile + "! EXITING..."
+               sys.exit(1) 
 
         # Store dimensions of the input fields
         if me.get_rank()==0 and verbose == True:
@@ -215,8 +215,7 @@ def main(argv):
         # Look at first file and get dims
         input_dims = o_files[0].dimensions
         ndims = len(input_dims)
-        #print ndims
-
+       
         nlev = -1
         nilev = -1
         ncol = -1
@@ -288,7 +287,7 @@ def main(argv):
                         print "Dimension mismatch between ", in_files[0], 'and', in_files[0], '!!!'
                      sys.exit()   
 
-        # Get 2d vars, 3d vars and all vars (For now include all variables) 
+        # Get 2d vars, 3d vars and all vars 
         vars_dict_all = o_files[0].variables
         #print vars_dict_all
         # Remove the excluded variables (specified in json file) from variable dictionary
@@ -339,10 +338,11 @@ def main(argv):
                   is_3d = True 
                   num_3d += 1
             else: # (time, lev, nlon, nlon) or (time, nlat, nlon)
-               if vr == 3 and vs[1] == nlat and vs[2] == nlon:  
-                  is_2d = True 
-                  num_2d += 1
-               elif vr==4:
+               if vr == 3:
+                  if vs[1] == nlat and vs[2] == nlon:  
+                     is_2d = True 
+                     num_2d += 1
+               elif vr == 4:
                   if vs[2] == nlat and vs[3] == nlon and vs[1] == nlev or vs[1]==nilev:  
                      is_3d = True 
                      num_3d += 1
@@ -353,7 +353,7 @@ def main(argv):
             elif is_2d == True:    
                str_size = max(str_size, len(k))
                d2_var_names.append(k)
-
+        # insert dummy var names if no 2D or no 3D variables are included in analysis
         if num_3d == 0:
            d3_var_names.append('nan')
             
@@ -368,7 +368,9 @@ def main(argv):
         d2_var_names.sort()       
         d3_var_names.sort()
 
-        print '3d vars ',d3_var_names
+        if me.get_rank() == 0 and verbose == True:
+           print '3d variables: ', d3_var_names
+           print '2D variables: ', d2_var_names
 
         if esize<num_2d+num_3d:
            if me.get_rank()==0:
@@ -377,7 +379,7 @@ def main(argv):
               print "  Cannot generate ensemble summary file, please remove more variables from your included variable list,"
               print "  or add more varaibles in your excluded variable list!!!"
               print "************************************************************************************************************************************"
-           sys.exit()
+           sys.exit(1)
         # All vars is 3d vars first (sorted), the 2d vars
         all_var_names = list(d3_var_names)
         all_var_names += d2_var_names
@@ -386,7 +388,7 @@ def main(argv):
            var_without_nan.remove('nan')
            n_all_var_names = len(var_without_nan)
         else:
-            n_all_var_names = len(all_var_names)
+           n_all_var_names = len(all_var_names)
         #print ' length of variable names is ', n_all_var_names
         #print all_var_names
         
@@ -439,14 +441,14 @@ def main(argv):
            setattr(nc_sumfile, 'title', 'AM4 verification ensemble summary file')
         else:
            setattr(nc_sumfile, 'title', 'CAM verification ensemble summary file')
-         
-        setattr(nc_sumfile, 'tag', opts_dict["tag"]) 
-        setattr(nc_sumfile, 'compset', opts_dict["compset"]) 
-        setattr(nc_sumfile, 'resolution', opts_dict["res"]) 
+           setattr(nc_sumfile, 'compset', opts_dict["compset"]) 
+           setattr(nc_sumfile, 'resolution', opts_dict["res"]) 
+
+        setattr(nc_sumfile, 'tag', opts_dict["tag"])      
         setattr(nc_sumfile, 'machine', opts_dict["mach"]) 
 
         # Create variables
-        if me.get_rank() == 0 and (verbose == True):
+        if me.get_rank() == 0 and verbose == True:
            print "Creating variables ....."
         if num_3d > 0:
            v_lev = nc_sumfile.create_variable("lev", 'f', ('nlev',))
@@ -474,7 +476,6 @@ def main(argv):
            v_RMSZ = nc_sumfile.create_variable("RMSZ", 'f', ('nvars', 'ens_size'))
         if opts_dict['model'] == 'gfdl':
            v_gm = nc_sumfile.create_variable("tile_mean", 'f', ('nvars', 'ens_size'))
-
         else:
            v_gm = nc_sumfile.create_variable("global_mean", 'f', ('nvars', 'ens_size'))   
 
@@ -493,8 +494,8 @@ def main(argv):
            v_sigma_scores_gm_land = nc_sumfile.create_variable('sigma_scores_land_mean','f',('nvars',))
 
         # Assign vars, var3d and var2d
-        if me.get_rank() == 0 and (verbose == True):
-           print "Assigning vars, var3d, and var2d ....."
+        if me.get_rank() == 0 and verbose == True:
+           print "Assigning vars, var3d, and var2d..."
 
         eq_all_var_names =[]
         eq_d3_var_names = []
@@ -535,14 +536,14 @@ def main(argv):
            v_var2d[:] = eq_d2_var_names[:]
 
         # Time-invarient metadata
-        if me.get_rank() == 0 and (verbose == True):
+        if me.get_rank() == 0 and verbose == True:
            print "Assigning time invariant metadata ....."
         if num_3d > 0:
            lev_data = input_dims[levkey]
            v_lev = lev_data
 
         # Form ensembles, each missing one member; compute RMSZs and global means
-        # for each variable, we also do max norm also (currently done in pyStats)
+        # for each variable, also compute max norm (currently done in pyStats)
         if outputfreq != 'month':
            tslice = pyEnsLib.get_timestep_number(input_dir,in_files[0])
         else:
@@ -577,17 +578,18 @@ def main(argv):
 
         # Calculate RMSZ scores  
         if not opts_dict['gmonly'] | opts_dict['cumul']:
-           if me.get_rank() == 0 and (verbose == True):
-              print "Calculating RMSZ scores ....."
-         
+           if me.get_rank() == 0 and verbose == True:
+              print "Calculating RMSZ scores ..."         
            zscore3d,zscore2d,ens_avg3d,ens_stddev3d,ens_avg2d,ens_stddev2d,temp1,temp2=pyEnsLib.calc_rmsz(o_files,var3_list_loc,var2_list_loc,is_SE,opts_dict,tx)    
 
         # Calculate max norm ensemble
         if opts_dict['maxnorm']:
            if me.get_rank() == 0 and verbose == True:
-              print "Calculating max norm of ensembles ....."
-           pyEnsLib.calculate_maxnormens(opts_dict,var3_list_loc)
-           pyEnsLib.calculate_maxnormens(opts_dict,var2_list_loc)
+              print "Calculating max norm of ensembles ..."
+           if num_3d > 0: 
+              pyEnsLib.calculate_maxnormens(opts_dict,var3_list_loc,in_files)
+           if num_2d > 0: 
+              pyEnsLib.calculate_maxnormens(opts_dict,var2_list_loc,in_files)
 
         if opts_dict['mpi_enable'] and not opts_dict['popens']:
            if not opts_dict['cumul']:
