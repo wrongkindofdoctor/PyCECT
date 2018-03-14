@@ -110,7 +110,7 @@ def main(argv):
                     
        outputfreq = outputfreq_dict[opts_dict['outputfreq']][0]
        print opts_dict['outputfreq']
-       use_tiles = opts_dict['usetiles']
+       use_tiles = [opts_dict['usetiles']]
       
        if len(use_tiles) > 1:
           tiles = [int(i) for i in use_tiles.split(',')]
