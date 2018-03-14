@@ -11,7 +11,7 @@ import pyEnsLib
 # This routine creates a summary file from an ensemble of AM4 history files
 def main(argv):
     # Get command line stuff and store in a dictionary
-    s = 'tag= compset= esize= tslice= res= sumfile= indir= sumfiledir= verbose jsonfile= mpi_enable maxnorm gmonly popens cumul regx= startMon= endMon= fIndex= mach= histfolder= usetiles= outputfreq= landmask'
+    s = 'tag= compset= esize= tslice= res= sumfile= indir= sumfiledir= verbose jsonfile= mpi_enable maxnorm popens regx= startMon= endMon= fIndex= mach= histfolder= usetiles= outputfreq= landmask'
     optkeys = s.split()
     try: 
         opts, args = getopt.getopt(argv, "h", optkeys)
