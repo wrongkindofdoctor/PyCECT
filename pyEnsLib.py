@@ -582,6 +582,7 @@ def get_area_wgt(o_files,is_SE,input_dims,nlev,popens,opts_dict,tile_number):
               nlat = get_lev(input_dims,'grid_yt')             
               geoLat,geoLon = get_tile_coordinates(input_dir, tile_number)
               gw = np.sqrt(np.cos(geoLat*np.pi/180))
+      
                
         else:
            if 'nlon' in input_dims:
@@ -1061,7 +1062,7 @@ def get_ncol_nlev(frun):
 # Calculate max norm ensemble value for each variable base on all ensemble run files
 # the inputdir should only have all ensemble run files
 #
-def calculate_maxnormens(opts_dict,var_list):
+def calculate_maxnormens(opts_dict,var_list,infiles):
   ifiles=[]
   Maxnormens={}
   threshold=1e-12
@@ -1072,44 +1073,44 @@ def calculate_maxnormens(opts_dict,var_list):
   tstart=opts_dict['tslice']
   
   # open all files
-  for frun_file in os.listdir(inputdir):
-    if (os.path.isfile(inputdir+frun_file)):
-      ifiles.append(Nio.open_file(inputdir+frun_file,"r"))
-    else:
-      print "COULD NOT LOCATE FILE "+inputdir+frun_file+" EXISTING"
-      sys.exit() 
+  for frun_file in infiles:
+      if os.path.isfile(inputdir+frun_file):
+         ifiles.append(Nio.open_file(inputdir+frun_file,"r"))
+      else:
+         print "COULD NOT LOCATE FILE "+inputdir+frun_file+" EXITING"
+         sys.exit() 
   comparision={}
   # loop through each variable
   for k in var_list:
-    output=[]
-    # read all data of variable k from all files
-    for f in ifiles:
-      v=f.variables
-      output.append(v[k][tstart])
-    max_val=0
-    # open an output file
-    outmaxnormens=k+"_ens_maxnorm.txt"
-    fout=open(outmaxnormens,"w")
-    Maxnormens[k]=[]
+      output=[]
+      # read all data of variable k from all files
+      for f in ifiles:
+          v=f.variables
+          output.append(v[k][tstart])
+          max_val=0
+          # open an output file
+          outmaxnormens=k+"_ens_maxnorm.txt"
+          fout=open(outmaxnormens,"w")
+          Maxnormens[k]=[]
    
-    # calculate E(i=0:n)(maxnormens[i][x])=max(comparision[i]-E(x=0:n)(output[x])) 
-    for n in range(len(ifiles)):
-      Maxnormens[k].append(0)
-      comparision[k]=ifiles[n].variables[k][tstart]
-      for m in range(len(ifiles)):
-        max_val=np.max(np.abs(comparision[k]-output[m]))
-        if Maxnormens[k][n] < max_val:
-          Maxnormens[k][n]=max_val
-      range_max=np.max((comparision[k]))
-      range_min=np.min((comparision[k]))
-      if range_max-range_min < threshold:
-        Maxnormens[k][n]=0.
-      else:
-        Maxnormens[k][n]=Maxnormens[k][n]/(range_max-range_min)
-      fout.write(str(Maxnormens[k][n])+'\n')
-    strtmp = k + ' : '  + 'ensmax min max' + ' : ' + '{0:9.2e}'.format(min(Maxnormens[k]))+' '+'{0:9.2e}'.format(max(Maxnormens[k]))
-    print strtmp
-    fout.close()
+      # calculate E(i=0:n)(maxnormens[i][x])=max(comparision[i]-E(x=0:n)(output[x])) 
+      for n in range(len(ifiles)):
+          Maxnormens[k].append(0)
+          comparision[k]=ifiles[n].variables[k][tstart]
+          for m in range(len(ifiles)):
+              max_val=np.max(np.abs(comparision[k]-output[m]))
+              if Maxnormens[k][n] < max_val:
+                 Maxnormens[k][n]=max_val
+              range_max=np.max((comparision[k]))
+              range_min=np.min((comparision[k]))
+          if range_max-range_min < threshold:
+             Maxnormens[k][n]=0.
+          else:
+             Maxnormens[k][n]=Maxnormens[k][n]/(range_max-range_min)
+          fout.write(str(Maxnormens[k][n])+'\n')
+      strtmp = k + ' : '  + 'ensmax min max' + ' : ' + '{0:9.2e}'.format(min(Maxnormens[k]))+' '+'{0:9.2e}'.format(max(Maxnormens[k]))
+      print strtmp
+      fout.close()
 
 #
 # Parse options from command line or from config file
@@ -1425,7 +1426,7 @@ def GFDL_usage():
     print '   --mach     <machine name> : name of working machine, default is Gaea'
     print '   --outputfreq <num>      : model output frequency: 0=monthly,1 =annual mean, 4=4xdaily,8=8xdaily (default = 0)'
     print '   --usetiles <num>        : which Cubed sphere tile(s) to use; default = 1'
-    print '   --histfolder    <name>  : index for history folder name; dedault is 1, which = 1x1m0d (1 segment of 1 month of output)'
+    print '   --histfolder    <name>  : index for history folder name; dedault is 1, which = 1x1m0d (1 segment of 1 month of output). More options may be added as needed'
     print '   --landmask              : option to include stats for land grid cells only; default is False'
     print '   --model <model name>    : name of model; default is gfdl'
     print '  ----------------------------'
@@ -1531,7 +1532,7 @@ def EnsSumPop_usage():
     print '   '
     print 'Version 1.0.0'
 #
-# Random pick up three files out of a lot files
+# Randomly select number of files (numRunFile or eet) from input file list
 #
 def Random_pickup(ifiles,opts_dict):
     if opts_dict['numRunFile'] > opts_dict['eet']:
@@ -2005,5 +2006,12 @@ def get_timestep_number(input_dir,filename):
     f.close()
     return timestep
 
+def compute_vertical_integral(input_dir,filename,tileNumber):	
+    filein = '19790101.grid_spec.tile' +str(tileNumber)+'.nc'	
+    f = Nio.open_file(input_dir + '/' + filename,"r")
+    t = f.variables['time'][:]
+    timestep = t.shape[0]-1
+    f.close()
+    return timestep
 
 
