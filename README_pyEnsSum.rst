@@ -8,7 +8,6 @@ The summary file calculates global means, RMSZ scores, PCA loadings, and max err
 This summary file is required for pyCECT.py.
 
 :AUTHORS: Haiying Xu, Allison Baker
-:VERSION: 1.0.0
 :COPYRIGHT: See the document entitled LICENSE.txt
 
 Send questions and comments to Haiying Xu (haiyingx@ucar.edu).
@@ -44,10 +43,8 @@ Before you start to use the package, you need to load the following modules:
        - module load numpy
        - module load scipy
        - module load pynio
-       - svn co https://proxy.subversion.ucar.edu/pubasap/pyTools/tags/v0.3 ASAPTool
-       Note: need to install asaptools and setup PYTHONPATH by following 
-             the instruction at README.rst in ASAPTool, please make sure
-             to set the correct python verion in the PYTHONPATH
+       - module load pyngl
+       - module load asaptools
        
 To see all options (and defaults):
 ----------------------------------
@@ -107,7 +104,7 @@ Examples for generating summary files:
 
 	   This yields the following command:
 
-           mpirun.lsf python  pyEnsSum.py --verbose --esize 151 --tslice 1 --indir /glade/u/tdd/asap/verification/cesm1_3_beta11/sz151-yellowstone-intel/ --tag cesm1_3_beta11 --sumfile intel_test.nc --jsonfile ens_excluded_varlist.json --gmonly --mpi_enable 
+           mpiexec_mpt python  pyEnsSum.py --verbose --esize 151 --tslice 1 --indir /glade/u/tdd/asap/verification/cesm1_3_beta11/sz151-yellowstone-intel/ --tag cesm1_3_beta11 --sumfile intel_test.nc --jsonfile ens_excluded_varlist.json --gmonly --mpi_enable 
 
 
 
